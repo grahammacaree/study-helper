@@ -42,11 +42,15 @@ Three panes:
 
 ## What you do
 
-### Lecture map
+### Adding a course
 
-Pick a current course. Only the next incomplete lecture is open: **Debrief** starts a session for that one. Earlier lectures show a check. If a completed lecture is tagged with several concepts, those names list under it and open the concept pane. If it is 1:1 with a concept of the same name, the lecture title itself is that link.
+Paste an OCW (or similar) **https** course URL in the left nav. The host fetches the public page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash.
 
 Unstarted courses can sit in `courses/index.json` with `"track": "later"` so they stay off Current and Completed until you mean to study them.
+
+### Lecture map
+
+Pick a course. Only the next incomplete lecture is open: **Debrief** starts a session for that one. Earlier lectures show a check. If a completed lecture is tagged with several concepts, those names list under it and open the concept pane. If it is 1:1 with a concept of the same name, the lecture title itself is that link.
 
 ### Debrief
 
@@ -67,12 +71,6 @@ Click a concept for stored teaching in the centre pane (Ask only). Non-root conc
 ### Side quests
 
 Start one from the nav tabs or from a debrief. Its own chat: an explanation (a couple of links if they help), then teach-back **and** a short conceptual quiz before **Done** will enable. **Quit** drops that quest from the file. A finished quest can land in the concept library from the notes already on disk. The **Active side quests** heading is omitted when nothing is open.
-
-## Adding a course
-
-Paste an OCW (or similar) **https** course URL. The host fetches the public page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash.
-
-Optional, **gitignored**: if `PERSONAL_SITE_ROOT` is set and `local/personal-site.ts` exists, init may append a stub card to that site’s `studies.config.json`. That file is not in this repo. It must not copy Drive ids, notebook uuids, or other private fields.
 
 ## What it remembers
 
