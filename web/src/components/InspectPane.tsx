@@ -236,7 +236,7 @@ export function CourseNav({
   const [url, setUrl] = useState("");
   const [questTitle, setQuestTitle] = useState("");
   const [adding, setAdding] = useState<"course" | "quest">("course");
-  const current = courses.filter((c) => c.track !== "previously");
+  const current = courses.filter((c) => (c.track ?? "currently") === "currently");
   const previous = courses.filter((c) => c.track === "previously");
 
   function group(title: string, list: CatalogCourse[]) {

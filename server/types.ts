@@ -26,8 +26,8 @@ export interface CourseMeta {
   title: string;
   instructors: string;
   sourceUrl: string;
-  /** currently = in flight; previously = finished. */
-  track?: "currently" | "previously";
+  /** currently = in flight; previously = finished; later = catalogued, not in the nav. */
+  track?: "currently" | "previously" | "later";
   /** Latest lecture underway (1..latest-1 treated as complete). */
   latest?: number;
   /** Every lecture has been debriefed (complete). */

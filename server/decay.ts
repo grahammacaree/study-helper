@@ -161,6 +161,7 @@ export function applyDecayHints(opts: {
 
   const linking = new Map<string, Set<"currently" | "previously">>();
   for (const course of opts.catalog.courses) {
+    if (course.track === "later") continue;
     const track = course.track === "previously" ? "previously" : "currently";
     for (const lec of opts.catalog.lectures[course.id] ?? []) {
       const status = opts.progress[course.id]?.[String(lec.n)];

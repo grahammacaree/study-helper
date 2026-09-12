@@ -138,7 +138,7 @@ export interface CatalogCourse {
   instructors: string;
   sourceUrl: string;
   blurb: string;
-  track?: "currently" | "previously";
+  track?: "currently" | "previously" | "later";
   latest?: number;
   complete?: boolean;
   lectures: Array<Lecture & { status: LectureStatus }>;
