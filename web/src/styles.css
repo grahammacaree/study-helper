@@ -174,11 +174,6 @@ a {
   color: var(--muted);
 }
 
-.nav-empty {
-  margin: 0 0 var(--space-xs);
-  font-size: var(--text-sm);
-}
-
 .add-item {
   margin-top: auto;
   padding-top: var(--space-sm);

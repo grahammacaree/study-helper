@@ -51,7 +51,7 @@ Optional, **gitignored**: if `PERSONAL_SITE_ROOT` is set and `local/personal-sit
 
 Long-term memory is files, not chat history. A new session starts a **new** Cursor agent and reads disk.
 
-**Committed** under `courses/` — curriculum maps, safe to share.
+**Gitignored** under `courses/` — lecture maps and `concepts.json`. Local curriculum, not the public repo.
 
 **Gitignored** under `data/`:
 
@@ -75,9 +75,9 @@ Catalog `latest` / `complete` seed progress on load and will not downgrade a com
 
 Personal local software, not a hosted product.
 
-**On this machine.** `CURSOR_API_KEY` lives in `.env` (gitignored). Learner state lives under `data/` (gitignored). None of that is encrypted at rest.
+**On this machine.** `CURSOR_API_KEY` lives in `.env` (gitignored). Learner state lives under `data/` (gitignored). Course maps live under `courses/` (gitignored). None of that is encrypted at rest.
 
-**Off this machine.** Debrief text, quiz answers, and slices of the learner files go through the **Cursor API** and bill to your key. Multiple-choice grading is local (the pick does not need a model turn). Session JSON under `data/sessions/` includes pasted summaries. Do not commit `data/` or `.env`. The server does not print summaries to logs.
+**Off this machine.** Debrief text, quiz answers, and slices of the learner files go through the **Cursor API** and bill to your key. Multiple-choice grading is local (the pick does not need a model turn). Session JSON under `data/sessions/` includes pasted summaries. Do not commit `data/`, `courses/`, or `.env`. The server does not print summaries to logs.
 
 **The local HTTP API.** UI and API bind to `127.0.0.1`. There is no login. Do not expose 5180/8790 to the network.
 
@@ -87,13 +87,13 @@ The right-hand **Library** tab is the concept map. A node appears only if a **co
 
 Each unlocked concept **decays**. Direct study (a debrief or a quiz on that id) is a full touch. Seeing a catalog neighbour — Chebyshev while proving the LLN, next to Hoeffding from Learning from Data — is an **echo**: it is noted on the older concept and slows the fade, but it is not a restudy. Dates for lectures you took before this app are seeded from Done vs Now timing, and the UI says so.
 
-Delete `data/` and `.env` for a clean slate.
+Delete `data/`, `courses/`, and `.env` for a clean slate.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `courses/` | Lecture maps + `concepts.json` |
+| `courses/` | Gitignored lecture maps + `concepts.json` |
 | `templates.md` | Output shapes |
 | `server/` | Host (catalog, learner files, sessions, agent) |
 | `server/quizPick.ts` | Deterministic quiz mix — the model does not choose the queue |

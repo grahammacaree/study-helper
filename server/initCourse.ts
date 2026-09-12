@@ -55,7 +55,14 @@ export async function initCourseFromUrl(rawUrl: string): Promise<InitCourseResul
   await writeFile(join(dir, "lectures.json"), `${JSON.stringify(lectures, null, 2)}\n`, "utf8");
 
   const indexPath = join(projectRoot(), "courses", "index.json");
-  const index = JSON.parse(await readFile(indexPath, "utf8")) as { courses: CourseMeta[] };
+  let index: { courses: CourseMeta[] } = { courses: [] };
+  try {
+    index = JSON.parse(await readFile(indexPath, "utf8")) as { courses: CourseMeta[] };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") throw err;
+  }
+  if (!Array.isArray(index.courses)) index.courses = [];
   index.courses.push(meta);
   await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
   invalidateCatalog();

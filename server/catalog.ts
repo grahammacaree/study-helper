@@ -20,24 +20,39 @@ export function invalidateCatalog(): void {
   cached = undefined;
 }
 
+async function readOptional(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
 export async function loadCatalog(): Promise<Catalog> {
   if (cached) return cached;
-  const indexRaw = await readFile(join(coursesDir(), "index.json"), "utf8");
+  const empty: Catalog = { courses: [], concepts: {}, lectures: {}, blurbs: {} };
+  const indexRaw = await readOptional(join(coursesDir(), "index.json"));
+  if (!indexRaw) {
+    cached = empty;
+    return cached;
+  }
   const index = JSON.parse(indexRaw) as { courses: CourseMeta[] };
-  const conceptsRaw = await readFile(join(coursesDir(), "concepts.json"), "utf8");
-  const concepts = JSON.parse(conceptsRaw) as Record<string, ConceptDef>;
+  const conceptsRaw = await readOptional(join(coursesDir(), "concepts.json"));
+  const concepts = conceptsRaw
+    ? (JSON.parse(conceptsRaw) as Record<string, ConceptDef>)
+    : {};
   const lectures: Record<string, Lecture[]> = {};
   const blurbs: Record<string, string> = {};
   for (const course of index.courses) {
-    const lecRaw = await readFile(
+    const lecRaw = await readOptional(
       join(coursesDir(), course.id, "lectures.json"),
-      "utf8",
     );
-    lectures[course.id] = JSON.parse(lecRaw) as Lecture[];
-    blurbs[course.id] = await readFile(
+    lectures[course.id] = lecRaw ? (JSON.parse(lecRaw) as Lecture[]) : [];
+    blurbs[course.id] = (await readOptional(
       join(coursesDir(), course.id, "course.md"),
-      "utf8",
-    );
+    )) ?? "";
   }
   cached = { courses: index.courses, concepts, lectures, blurbs };
   return cached;

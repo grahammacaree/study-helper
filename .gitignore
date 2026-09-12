@@ -8,5 +8,6 @@ dist
 *.pem
 credentials.json
 data
+courses
 local
 lecture-chat.txt

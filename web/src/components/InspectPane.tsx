@@ -270,32 +270,32 @@ export function CourseNav({
         </p>
       )}
       {group("Current courses", current)}
-      <h2>Active side quests</h2>
       {sideQuests.length ? (
-        <ul className="nav-courses">
-          {sideQuests.map((q) => (
-            <li key={q.id}>
-              <button
-                type="button"
-                className={
-                  [
-                    "nav-course",
-                    q.id === questId ? "current" : "",
-                    q.status === "parked" ? "parked" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                }
-                onClick={() => onQuest?.(q.id)}
-              >
-                {q.title}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="muted nav-empty">None open.</p>
-      )}
+        <>
+          <h2>Active side quests</h2>
+          <ul className="nav-courses">
+            {sideQuests.map((q) => (
+              <li key={q.id}>
+                <button
+                  type="button"
+                  className={
+                    [
+                      "nav-course",
+                      q.id === questId ? "current" : "",
+                      q.status === "parked" ? "parked" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                  onClick={() => onQuest?.(q.id)}
+                >
+                  {q.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {group("Completed courses", previous)}
       <form
         className="add-item"

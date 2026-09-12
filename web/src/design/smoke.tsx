@@ -58,6 +58,9 @@ for (const s of SCENARIOS) {
   if (html.includes('id="tab-library"') || html.includes('id="tab-outline"') || html.includes('id="tab-summary"')) {
     fail(s.id, "concept pane should not have library tabs");
   }
+  if (html.includes("None open.")) {
+    fail(s.id, "empty side quests should not show None open");
+  }
   if (html.includes(">Hide<")) {
     fail(s.id, "Hide should be a chevron, not a text button");
   }
@@ -110,8 +113,13 @@ for (const s of SCENARIOS) {
     if (html.includes("New side quest")) {
       fail(s.id, "side quests should not start from the lecture pane");
     }
-    if (!html.includes("Active side quests")) {
-      fail(s.id, "nav should list active side quests under current courses");
+    const quests = (s.catalog ?? FIX_CATALOG).openQuests ?? [];
+    if (quests.length) {
+      if (!html.includes("Active side quests")) {
+        fail(s.id, "nav should list active side quests under current courses");
+      }
+    } else if (html.includes("Active side quests") || html.includes("None open.")) {
+      fail(s.id, "empty side quests should not take a nav heading");
     }
     if (!html.includes("Current courses")) {
       fail(s.id, "nav should name current courses");
