@@ -1,0 +1,41 @@
+{
+  "name": "study-helper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "design": "VITE_DESIGN=1 vite --open \"/?design\"",
+    "design:check": "tsx --tsconfig tsconfig.web.json web/src/design/smoke.tsx",
+    "check:quiz": "tsx checks/quiz-pick.ts",
+    "check:catalog": "tsx checks/catalog.ts",
+    "check:decay": "tsx checks/decay.ts",
+    "check:progress": "tsx checks/lecture-progress.ts",
+    "check:quests": "tsx checks/quests.ts",
+    "check:measure": "tsx checks/measure-tokens.ts",
+    "check": "npm run check:catalog && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:measure && npm run design:check && npm run typecheck",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.28",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "katex": "^0.18.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}

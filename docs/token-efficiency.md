@@ -1,0 +1,46 @@
+# Token efficiency
+
+A study session is a handful of prompts on **one agent and one conversation**. The next session must **not** replay this chat: it reads `data/learner/` files. That is the main saving, not a smaller model.
+
+Figures below are **measured** from assembled prompt strings (`npm run check:measure`), or **inferred** from those counts at ~4 chars/token.
+
+## The rule
+
+Standing context (profile excerpt, course blurb, concept tags, knowledge *slice*) is sent once per session. Later turns get a one-line reminder. After `REPRIME_AFTER_CARDS` (6) the slice is sent again so it does not drift out of weight.
+
+The host, not the model, picks the quiz queue (`server/quizPick.ts`): after a debrief, three lecture-related ids and two cold hits; on a finished course, five unique course hits, coldest first. Items are conceptual (no calculations). The whole set is written in **one** `publish_quiz_set` call. Grading a choice is local — no model turn. A new side quest opens with **one** `publish_quest_plan`. Opening a concept with no file yet uses **one** `publish_concept_teaching`, then the file is reread.
+
+`tools: ["mcp"]` only (so custom tools work). No read/grep/shell. The host already passed the slice; the model must not walk the repo.
+
+## What a first debrief prompt contains
+
+Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tags, an empty knowledge slice, current debrief instructions, and an 800-character dummy summary (`npm run check:measure`):
+
+- Standing context: **1,351 characters (~340 tokens, inferred at 4 chars/token)** — measured
+- Full first debrief: **2,899 characters (~725 tokens, inferred)** — measured with that dummy summary
+- Follow-up reminder: **83 characters** — measured. A second turn omits the standing block (**1,351 characters saved**, measured).
+
+## What we do not send
+
+- Prior session transcripts (`data/sessions/` is UI resume only)
+- Other courses’ lecture lists
+- Concept ids outside this lecture plus quiz-queue ids and one hop of `seeAlso`
+- Full `knowledge.md` when a slice will do
+- Full concept teaching files except the clipped slice for ids in play
+- Invented examples (examples only if the pasted summary has one)
+- Decay echo history (`data/learner/decay.json` is host-only)
+- The pasted lecture summary on the background profile rewrite (structured evidence only)
+- A knowledge.md rewrite — the host already applied `knowledgeUpdates`
+
+The concept library is built from lecture titles on disk. Mapping already-debriefed lectures does not take a model turn.
+
+## Background rewrite
+
+After **debrief** only, a profile tidy runs on the same agent queue. Quiz sessions skip it (quiz-log + knowledge rows are host-written). Closing the agent waits on that write.
+
+## If you are adding a prompt
+
+1. Ask what this agent has already been told this session.
+2. Take the knowledge *slice* for the ids in play, not the whole file.
+3. Prefer one tool call over a turn per item.
+4. Measure the assembled string before and after. A percentage without a measurement is a guess.
