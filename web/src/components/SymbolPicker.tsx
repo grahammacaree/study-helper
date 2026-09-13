@@ -39,6 +39,107 @@ const SYMBOLS: { glyph: string; tex: string; name: string }[] = [
   { glyph: "Θ", tex: "\\Theta", name: "big theta" },
 ];
 
+const HINTS: { re: RegExp; tex: string[] }[] = [
+  {
+    re: /hash|subset|\bsets?\b|union|intersect|combinat|element|belong|subspace|nullspace|column.space|vector.space/,
+    tex: [
+      "\\in",
+      "\\notin",
+      "\\subset",
+      "\\subseteq",
+      "\\subsetneq",
+      "\\cup",
+      "\\cap",
+      "\\emptyset",
+    ],
+  },
+  {
+    re: /probab|statist|expect|random|distribut|bayes|varianc|likelihood|stochast/,
+    tex: ["\\mathbb{E}", "\\sigma", "\\approx", "\\infty", "\\sum", "\\cdot"],
+  },
+  {
+    re: /t-distribut|student|chi-?squar|\bnorm\b|least.square|quadratic/,
+    tex: ["\\sqrt{}", "\\sigma", "\\approx"],
+  },
+  {
+    re: /complexit|runtime|asymptot|big.?o|\bsorting\b|algorithm/,
+    tex: ["O", "\\Theta"],
+  },
+  {
+    re: /linear|matrix|matrices|vector|eigen|project|gram|least.square|pseudoinverse/,
+    tex: ["\\mathbb{R}", "\\in", "\\to", "\\cdot", "\\times"],
+  },
+  {
+    re: /quantif|forall|exists|\blogic\b|\bproof\b|implies|implication/,
+    tex: ["\\forall", "\\exists", "\\Rightarrow", "\\to"],
+  },
+  {
+    re: /series|integr|calculus|\blimits?\b|converg|infin/,
+    tex: ["\\sum", "\\prod", "\\infty", "\\approx"],
+  },
+  {
+    re: /inequal|bound|\border\b|compar/,
+    tex: ["\\leq", "\\geq", "\\neq", "\\approx"],
+  },
+];
+
+export function symbolHintFrom(
+  session: {
+    questTitle?: string;
+    conceptId?: string;
+    coveredConcepts?: string[];
+    inspect: {
+      courseTitle: string;
+      courseBlurb: string;
+      lecture?: { title: string; conceptIds: string[] };
+    };
+  } | null,
+): string {
+  if (!session) return "";
+  const lec = session.inspect.lecture;
+  return [
+    session.inspect.courseTitle,
+    session.inspect.courseBlurb,
+    lec?.title,
+    ...(lec?.conceptIds ?? []),
+    session.questTitle,
+    session.conceptId,
+    ...(session.coveredConcepts ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function rankSymbols(
+  haystack: string,
+  recent: string[] = [],
+): typeof SYMBOLS {
+  const hay = haystack.toLowerCase();
+  const recentAt = new Map(recent.map((tex, i) => [tex, i]));
+  const origin = new Map(SYMBOLS.map((s, i) => [s.tex + s.name, i]));
+  return SYMBOLS.map((s) => s).sort((a, b) => {
+    const ra = recentAt.has(a.tex) ? recentAt.get(a.tex)! : 999;
+    const rb = recentAt.has(b.tex) ? recentAt.get(b.tex)! : 999;
+    if (ra !== rb) return ra - rb;
+    const ka = hintScore(a, hay);
+    const kb = hintScore(b, hay);
+    if (ka !== kb) return kb - ka;
+    return (origin.get(a.tex + a.name) ?? 0) - (origin.get(b.tex + b.name) ?? 0);
+  });
+}
+
+function hintScore(
+  s: (typeof SYMBOLS)[number],
+  hay: string,
+): number {
+  let n = 0;
+  for (const group of HINTS) {
+    if (group.tex.includes(s.tex) && group.re.test(hay)) n += 1;
+  }
+  if (s.name.length > 2 && hay.includes(s.name.toLowerCase())) n += 2;
+  return n;
+}
+
 export function insertTex(
   text: string,
   start: number,
@@ -57,13 +158,18 @@ export function insertTex(
 
 export function SymbolPicker({
   disabled,
+  hint = "",
+  recent = [],
   onPick,
 }: {
   disabled?: boolean;
+  hint?: string;
+  recent?: string[];
   onPick: (tex: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const shown = rankSymbols(hint, recent);
 
   useEffect(() => {
     if (!open) return;
@@ -90,6 +196,7 @@ export function SymbolPicker({
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls="symbol-picker-panel"
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((v) => !v)}
       >
         Symbols
@@ -100,14 +207,16 @@ export function SymbolPicker({
           className="symbol-panel"
           role="dialog"
           aria-label="Math symbols"
+          onMouseDown={(e) => e.preventDefault()}
         >
-          {SYMBOLS.map((s) => (
+          {shown.map((s) => (
             <button
               key={s.tex + s.name}
               type="button"
               className="symbol-item"
               title={s.name}
               aria-label={s.name}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onPick(s.tex);
                 setOpen(false);

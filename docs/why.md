@@ -42,7 +42,7 @@ A library node is not a gift from the model. You **meet** an idea in a lecture o
 
 The teaching file you see on open is a **crystallisation** written once (host-owned, not regenerated). It is not a substitute for the summary you wrote, and it is not a dump of the lecture. You earned the *node* by debriefing or finishing a quest. The prose is a stable page to Ask against, not the proof that you understand it.
 
-Examples on a knowledge row exist only if your pasted summary had one. The model must not invent a cute story so the file looks full.
+Examples on a knowledge row exist only if your written summary had one. The model must not invent a cute story so the file looks full.
 
 ### What the model must not do
 

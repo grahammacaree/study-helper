@@ -20,7 +20,7 @@ export const Prose = memo(function Prose({
       key += 1;
       continue;
     }
-    const lines = block.text.split("\n");
+    const lines = coalesceMathLines(block.text.split("\n"));
     let i = 0;
     while (i < lines.length) {
       const line = lines[i];
@@ -77,7 +77,96 @@ export const Prose = memo(function Prose({
 }, (prev, next) => prev.text === next.text);
 
 function tidy(text: string): string {
-  return text.trim().replace(/\*{3,}/g, "**");
+  return wrapBareTex(
+    text
+      .trim()
+      .replace(/\*{3,}/g, "**")
+      .replace(/\\\[([\s\S]+?)\\\]/g, (_, m: string) => `$$${m}$$`)
+      .replace(/\\\(([\s\S]+?)\\\)/g, (_, m: string) => `$${m}$`),
+  );
+}
+
+const BARE_TEX =
+  /^(?:\\[a-zA-Z]+(?:\s*\{[^{}]*\})*|[A-Za-z][A-Za-z0-9]*(?:\^\{[^{}]+\}|\^[0-9A-Za-z]+|\_\{[^{}]+\}|\_[0-9A-Za-z])+)/;
+
+function wrapBareTex(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith("$$", i)) {
+      const end = text.indexOf("$$", i + 2);
+      if (end >= 0) {
+        out += text.slice(i, end + 2);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === "$" && text[i + 1] !== "$") {
+      const end = nextUnescapedDollar(text, i + 1);
+      if (end > i) {
+        out += text.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+    }
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end > i) {
+        out += text.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+    }
+    const m = BARE_TEX.exec(text.slice(i));
+    if (m) {
+      out += `$${m[0]}$`;
+      i += m[0].length;
+      continue;
+    }
+    out += text[i];
+    i += 1;
+  }
+  return out;
+}
+
+function nextUnescapedDollar(text: string, from: number): number {
+  for (let j = from; j < text.length; j += 1) {
+    if (text[j] !== "$" || text[j - 1] === "\\") continue;
+    if (text[j + 1] === "$") continue;
+    return j;
+  }
+  return -1;
+}
+
+function oddInlineDollars(s: string): boolean {
+  let n = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    if (s.startsWith("$$", i)) {
+      i += 1;
+      continue;
+    }
+    if (s[i] === "$" && s[i - 1] !== "\\") n += 1;
+  }
+  return n % 2 === 1;
+}
+
+function coalesceMathLines(lines: string[]): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    let line = lines[i];
+    i += 1;
+    if (!line.trim()) {
+      out.push(line);
+      continue;
+    }
+    while (i < lines.length && oddInlineDollars(line) && lines[i].trim()) {
+      line = `${line} ${lines[i].trim()}`;
+      i += 1;
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 function splitDisplayMath(text: string): { text: string; math?: string }[] {
@@ -147,7 +236,7 @@ function inline(
       continue;
     }
     if (text[i] === "$" && text[i + 1] !== "$") {
-      const end = text.indexOf("$", i + 1);
+      const end = nextUnescapedDollar(text, i + 1);
       if (end > i + 1) {
         nodes.push(mathNode(text.slice(i + 1, end), false, `${seed}-m-${k}`));
         k += 1;

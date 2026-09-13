@@ -40,7 +40,7 @@ Three panes:
 2. **Centre** — the lecture map for the selected course, or a chat (debrief, quiz/review, concept, side quest, or picking a new course).
 3. **Concept library** — unlocked concepts as a tree. Hide it with the chevron.
 
-`$...$` and `$$...$$` render as KaTeX in both directions. Skipping problem sets is fine.
+`$...$` and `$$...$$` render as KaTeX in both directions, as do `\(...\)`, `\[...\]`, and bare bits like `Z^{2}`. Skipping problem sets is fine.
 
 ## What you do
 
@@ -56,7 +56,7 @@ Pick a course. Only the next incomplete lecture is open: **Debrief** starts a se
 
 ### Debrief
 
-Paste the summary you wrote. The model checks conceptual mistakes (reduction direction, proven vs conjectured, hardness vs completeness, …) and may note a structural gap. Saying the correction back is optional; **Leave shaky** stores the wobble. **Finish** anytime before a closing quiz. **Side quest** starts a detour from this debrief (or say you want one in the summary).
+Write a summary of the lecture in the compose field. Drag the bar on its top edge to grow it for a long write-up. **Symbols** inserts TeX at the caret; the grid is the full set, ordered by this lecture/course/concept and by what you picked this session (not by a model call, and not from your notes). The model checks conceptual mistakes (reduction direction, proven vs conjectured, hardness vs completeness, …) and may note a structural gap. Saying the correction back is optional; **Leave shaky** stores the wobble. **Finish** anytime before a closing quiz. **Side quest** starts a detour from this debrief (or say you want one in the summary).
 
 About one in five **non-final** debriefs then starts a **five-question mix** (three from that lecture, two colder, including older courses). That mix is part of finishing: no skip, no quit until it is done. Items are conceptual — definitions, direction of implication, how you would attack a problem — never a calculation. The host picks the queue; the model writes the set in one call; grading the pick is local.
 

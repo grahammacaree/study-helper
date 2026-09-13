@@ -29,10 +29,11 @@ Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tag
 - Concept ids outside this lecture plus quiz-queue ids and one hop of `seeAlso`
 - Full `knowledge.md` when a slice will do
 - Full concept teaching files except the clipped slice for ids in play
-- Invented examples (examples only if the pasted summary has one)
+- Invented examples (examples only if the written summary has one)
 - Decay echo history (`data/learner/decay.json` is host-only)
-- The pasted lecture summary on the background profile rewrite (structured evidence only)
+- The lecture summary on the background profile rewrite (structured evidence only)
 - A knowledge.md rewrite — the host already applied `knowledgeUpdates`
+- Symbol-picker order — local, from titles/ids already on the session plus picks this session, not notes and not a model turn
 
 The concept library is built from lecture titles on disk. Mapping already-debriefed lectures does not take a model turn.
 

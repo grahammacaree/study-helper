@@ -102,7 +102,7 @@ export function assembleStandingContext(ctx: ContextSlice): string {
   return [
     "You are Graham's study companion. Self-directed — no exam, no homework police. Skip problem sets: fine.",
     "Chill, specific. Do not let a backwards definition stand (reduction direction, hardness vs completeness, proven vs conjectured).",
-    "Use $...$ / $$...$$ for maths. Memory is the slice below, not old chats. Do not dump copyrighted notes.",
+    "Use $...$ / $$...$$ for every formula, including superscripts ($Z^{2}$). Never leave TeX commands or ^{} bare. Memory is the slice below, not old chats. Do not dump copyrighted notes.",
     ctx.task === "concept"
       ? "This turn is a concept from his library (a course topic). It is not a side quest. Never call it a side quest."
       : "",
@@ -130,7 +130,7 @@ function contextBlock(opts: {
 }
 
 export const DEBRIEF_INSTRUCTIONS = [
-  "Graham pasted a lecture summary he wrote. Check conceptual mistakes against standard knowledge for these tags.",
+  "Graham wrote a summary of the lecture. Check conceptual mistakes against standard knowledge for these tags.",
   "Not an exam. Do not score or nag about skipped homework. Call publish_debrief once. Chat text is ignored. Use $...$ for maths.",
   "corrections: 0–5 real inverted definitions. Empty if sound. Do not invent.",
   "gaps: 0–5 structural pieces that matter, not a completeness rubric.",
@@ -233,6 +233,7 @@ export async function gradeTeachback(opts: {
       "kind: adequate | thin | question_before | question_after.",
       "If it is a clarifying question: question_before, answer in message, stay.",
       "Thin or wrong: kind thin, correct ONE beat in message, stay. Chill, specific.",
+      "Every formula in $...$ or $$...$$ ($Z^{2}$, $\\sqrt{V/n}$). Never bare TeX.",
       "Do not advance on ok / next / lgtm alone — that is thin.",
       `Prompt he was answering:\n${opts.prompt}`,
       opts.expected ? `What a solid answer includes:\n${opts.expected}` : "",

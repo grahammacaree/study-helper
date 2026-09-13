@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { StudyView, type StudyActions } from "../components/StudyView";
-import { insertTex } from "../components/SymbolPicker";
+import { insertTex, rankSymbols } from "../components/SymbolPicker";
 import { seedConceptOutline } from "../conceptOutline";
 import { AUTH_MISSING, AUTH_OK, FIX_CATALOG, SCENARIOS } from "./fixtures";
 import { Prose } from "../prose";
@@ -353,10 +353,31 @@ const inside = insertTex("see $x$", 6, 6, "\\in");
 if (inside.next !== "see $x\\in$") fail("prose", "insert inside math should skip extra dollars");
 const around = insertTex("see ", 4, 4, "\\in");
 if (around.next !== "see $\\in$") fail("prose", "insert outside math should wrap dollars");
+const defaultOrder = rankSymbols("", []).map((s) => s.tex);
+if (defaultOrder[0] !== "\\in" || defaultOrder.at(-1) !== "\\Theta") {
+  fail("prose", "empty hint should keep the default symbol order");
+}
+const hashing = rankSymbols("Intro to Algorithms Hashing hashing", []);
+if (hashing.findIndex((s) => s.tex === "O") > 10) {
+  fail("prose", "algorithm hashing should float big O");
+}
+if (hashing[0].tex !== "\\in") fail("prose", "hashing should keep set membership first");
+const recency = rankSymbols("Hashing", ["\\geq"]);
+if (recency[0].tex !== "\\geq") fail("prose", "recent symbols should win over hints");
+const linear = rankSymbols("Linear algebra linear-algebra", []);
+if (linear.findIndex((s) => s.tex === "\\mathbb{R}") > 8) {
+  fail("prose", "linear algebra should float the reals");
+}
 const wiki = proseHtml("[Hashing](concept:hashing)");
 if (!wiki.includes("#concept/hashing")) fail("prose", "concept: links should be in-app anchors");
 if (!wiki.includes("Hashing")) fail("prose", "concept: link label missing");
-else report("prose", "inline", "Bold keeps math; stray ** dropped");
+const paren = proseHtml("see \\(x^2\\) here");
+if (!paren.includes("katex")) fail("prose", "\\(...\\) should render as TeX");
+const bare = proseHtml("T=Z^{2} on top");
+if (!bare.includes("katex")) fail("prose", "bare Z^{2} should render as TeX");
+const split = proseHtml("$a =\nb$");
+if (!split.includes("katex")) fail("prose", "math split across lines should still render");
+report("prose", "inline", "Bold keeps math; stray ** dropped");
 
 if (failures) {
   throw new Error(`${failures} design state(s) broken`);

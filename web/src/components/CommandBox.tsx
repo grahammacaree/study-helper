@@ -1,7 +1,28 @@
-import { useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { QUEST_DONE_HINT, questCanMarkDone } from "../questReady";
 import type { Phase, SessionSnapshot } from "../types";
-import { insertTex, SymbolPicker } from "./SymbolPicker";
+import {
+  insertTex,
+  SymbolPicker,
+  symbolHintFrom,
+} from "./SymbolPicker";
+
+const COMPOSE_MIN = 74;
+
+function composeMax(): number {
+  if (typeof window === "undefined") return 448;
+  return Math.round(Math.min(window.innerHeight * 0.55, 28 * 16));
+}
+
+function clampCompose(h: number): number {
+  return Math.min(composeMax(), Math.max(COMPOSE_MIN, Math.round(h)));
+}
 
 export type ChipAction =
   | "skip"
@@ -30,7 +51,33 @@ export function CommandBox({
 }) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"ask" | "teachback">("teachback");
+  const [fieldH, setFieldH] = useState<number | null>(null);
+  const [recentTex, setRecentTex] = useState<string[]>([]);
   const field = useRef<HTMLTextAreaElement>(null);
+  const caret = useRef({ start: 0, end: 0 });
+  const restoreCaret = useRef<number | null>(null);
+  const fieldScroll = useRef(0);
+
+  function rememberField(el: HTMLTextAreaElement) {
+    caret.current = { start: el.selectionStart, end: el.selectionEnd };
+    fieldScroll.current = el.scrollTop;
+  }
+
+  useLayoutEffect(() => {
+    if (restoreCaret.current == null) return;
+    const n = restoreCaret.current;
+    restoreCaret.current = null;
+    const el = field.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(n, n);
+    el.scrollTop = fieldScroll.current;
+  }, [text]);
+
+  useEffect(() => {
+    setRecentTex([]);
+  }, [session?.id]);
+
   const phase = session?.phase;
   const textMode = canSubmitText(phase);
   const canSend = textMode && text.trim().length > 0;
@@ -44,8 +91,43 @@ export function CommandBox({
   const showForm = textMode && !disabled;
   const blocked = disabled || !ready;
 
+  function onResizePointer(e: ReactPointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const startY = e.clientY;
+    const startH = fieldH ?? field.current?.offsetHeight ?? COMPOSE_MIN;
+    handle.setPointerCapture(e.pointerId);
+    function onMove(ev: PointerEvent) {
+      setFieldH(clampCompose(startH + (startY - ev.clientY)));
+    }
+    function onUp(ev: PointerEvent) {
+      handle.releasePointerCapture(ev.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+    }
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  }
+
   return (
     <div className="command-box">
+      {showForm && (
+        <button
+          type="button"
+          className="compose-resize"
+          aria-label="Resize composer"
+          title="Drag to expand the composer"
+          onPointerDown={onResizePointer}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            e.preventDefault();
+            const cur = fieldH ?? field.current?.offsetHeight ?? COMPOSE_MIN;
+            setFieldH(clampCompose(cur + (e.key === "ArrowUp" ? 24 : -24)));
+          }}
+        />
+      )}
       {disabled && (
         <div className="work-row" role="status">
           <span className="spinner" aria-hidden="true" />
@@ -122,8 +204,15 @@ export function CommandBox({
               rows={3}
               value={text}
               disabled={blocked}
+              style={fieldH ? { height: fieldH } : undefined}
               placeholder="TeX welcome: $P \\subsetneq EXP$ or $$...$$"
-              onChange={(e) => setText(e.target.value)}
+              onSelect={(e) => rememberField(e.currentTarget)}
+              onClick={(e) => rememberField(e.currentTarget)}
+              onKeyUp={(e) => rememberField(e.currentTarget)}
+              onChange={(e) => {
+                rememberField(e.target);
+                setText(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -147,16 +236,23 @@ export function CommandBox({
               </button>
               <SymbolPicker
                 disabled={blocked}
+                hint={symbolHintFrom(session)}
+                recent={recentTex}
                 onPick={(tex) => {
                   const el = field.current;
-                  const start = el?.selectionStart ?? text.length;
-                  const end = el?.selectionEnd ?? text.length;
+                  const live = el && document.activeElement === el;
+                  const start = live
+                    ? el.selectionStart
+                    : caret.current.start;
+                  const end = live ? el.selectionEnd : caret.current.end;
                   const { next, cursor } = insertTex(text, start, end, tex);
+                  if (el) fieldScroll.current = el.scrollTop;
+                  restoreCaret.current = cursor;
+                  setRecentTex((prev) => [
+                    tex,
+                    ...prev.filter((t) => t !== tex),
+                  ].slice(0, 12));
                   setText(next);
-                  requestAnimationFrame(() => {
-                    el?.focus();
-                    el?.setSelectionRange(cursor, cursor);
-                  });
                 }}
               />
               <span className="muted compose-hint">
@@ -213,7 +309,7 @@ function promptFor(
 ): string | undefined {
   if (mode === "ask") return undefined;
   if (session?.phase === "awaiting_summary") {
-    return "Paste the summary you wrote after the lecture";
+    return "Write a summary of the lecture";
   }
   if (session?.phase === "correction_gate") {
     return "Optional: say the corrected idea in your own words";

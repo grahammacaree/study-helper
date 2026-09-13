@@ -384,7 +384,7 @@ export async function startSession(input: {
     push(s, {
       role: "assistant",
       kind: "status",
-      text: `Lecture ${lec.n}: ${lec.title}. Paste the summary you wrote. I will check the ideas, not the handwriting.`,
+      text: `Lecture ${lec.n}: ${lec.title}. Write a summary of the lecture. I will check the ideas.`,
     });
   } else if (input.kind === "quest") {
     const title = questTitle;

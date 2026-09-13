@@ -406,7 +406,7 @@ a {
   padding: var(--space-sm) var(--pane-x, var(--space-sm));
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 0.65rem;
 }
 
 .file-inspect-body {
@@ -414,16 +414,11 @@ a {
 }
 
 .bubble {
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--line);
+  padding: 0.2rem 0;
   background: transparent;
   max-width: 100%;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.transcript .bubble:last-of-type {
-  border-bottom: 0;
 }
 
 .bubble.user {
@@ -486,6 +481,28 @@ a {
   justify-content: center;
 }
 
+.compose-resize {
+  display: block;
+  width: calc(100% + 2 * var(--pane-x, var(--space-sm)));
+  margin: calc(-1 * var(--space-xs)) calc(-1 * var(--pane-x, var(--space-sm)))
+    0.1rem;
+  height: 0.7rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  flex-shrink: 0;
+}
+
+.compose-resize::after {
+  content: "";
+  display: block;
+  width: 2.25rem;
+  height: 3px;
+  margin: 0.22rem auto 0;
+  background: var(--line);
+}
+
 .command-bar {
   display: flex;
   align-items: center;
@@ -501,7 +518,6 @@ a {
   display: flex;
   align-items: flex-end;
   gap: 0.5rem;
-  border-bottom: 1px solid var(--line);
 }
 
 .compose-prompt {
@@ -520,8 +536,11 @@ a {
   margin-left: auto;
 }
 
-.compose-head + .compose-panel textarea {
-  border-top: 0;
+.compose-panel textarea {
+  resize: none;
+  min-height: 4.6rem;
+  max-height: min(55vh, 28rem);
+  overflow-y: auto;
 }
 
 .chips,
