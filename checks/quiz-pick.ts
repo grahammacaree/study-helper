@@ -1,9 +1,11 @@
 import {
   DEBRIEF_QUIZ_P,
+  importanceForCourse,
   pickCourseReview,
   pickDebriefMix,
   shouldOfferDebriefQuiz,
 } from "../server/quizPick.js";
+import type { Catalog } from "../server/catalog.js";
 
 let failures = 0;
 
@@ -43,6 +45,33 @@ if (review.includes("geometry-equations") && review.indexOf("subspaces") > revie
   fail("colder subspaces should rank before geometry");
 }
 
+const toy: Catalog = {
+  courses: [{ id: "c", title: "C", instructors: "", sourceUrl: "https://example.com" }],
+  concepts: {
+    root: { name: "Root" },
+    hashing: { name: "Hashing", parentId: "root", seeAlso: ["sorting"] },
+    sorting: { name: "Sorting", parentId: "root" },
+    leaf: { name: "Leaf", parentId: "hashing" },
+  },
+  lectures: {
+    c: [
+      { n: 1, title: "A", url: "https://example.com", conceptIds: ["hashing"] },
+      { n: 2, title: "B", url: "https://example.com", conceptIds: ["hashing", "sorting"] },
+      { n: 3, title: "C", url: "https://example.com", conceptIds: ["leaf"] },
+    ],
+  },
+  blurbs: {},
+};
+const hits = ["hashing", "sorting", "leaf"];
+const imp = importanceForCourse(toy, "c", hits);
+if (!(imp.hashing > imp.sorting && imp.sorting > imp.leaf)) {
+  fail(`importance hashing>sorting>leaf got ${JSON.stringify(imp)}`);
+}
+const weighted = pickCourseReview(hits, { hashing: 0.9, sorting: 0.9, leaf: 0 }, imp);
+if (weighted[0] !== "hashing") {
+  fail(`important hashing should beat a cold leaf, got ${weighted[0]}`);
+}
+
 if (shouldOfferDebriefQuiz(() => 0.1) !== true) fail("0.1 should offer");
 if (shouldOfferDebriefQuiz(() => DEBRIEF_QUIZ_P) !== false) fail("p itself is not below threshold");
 if (shouldOfferDebriefQuiz(() => 0.9) !== false) fail("0.9 should not offer");
@@ -50,3 +79,4 @@ if (shouldOfferDebriefQuiz(() => 0.9) !== false) fail("0.9 should not offer");
 if (failures) throw new Error(`${failures} quiz-pick check(s) failed`);
 console.log(`ok mix ${mix.join(", ")}`);
 console.log(`ok review ${review.join(", ")}`);
+console.log(`ok weighted ${weighted.join(", ")}`);

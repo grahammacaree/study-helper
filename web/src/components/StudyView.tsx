@@ -19,6 +19,7 @@ export interface StudyActions {
   onNewQuest: (title: string) => void;
   onInitCourse: (url: string) => void;
   onPickQuiz: (choiceId: string) => void;
+  onPickCourse: (url: string) => void;
   onConcept: (id: string) => void;
 }
 
@@ -61,6 +62,8 @@ export function StudyView({
         onCourse={actions.onCourse}
         onInit={actions.onInitCourse}
         initBusy={initBusy}
+        busy={busy}
+        error={error}
         auth={auth}
         sideQuests={catalog?.openQuests ?? []}
         questId={session?.kind === "quest" ? session.questId : undefined}
@@ -77,6 +80,7 @@ export function StudyView({
           onAction={actions.onAction}
           onInterrupt={actions.onInterrupt}
           onPickQuiz={actions.onPickQuiz}
+          onPickCourse={actions.onPickCourse}
           onConcept={actions.onConcept}
         />
       ) : (

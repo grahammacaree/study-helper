@@ -1,4 +1,4 @@
-export type SessionKind = "debrief" | "quiz" | "quest" | "concept";
+export type SessionKind = "debrief" | "quiz" | "quest" | "concept" | "find";
 
 export type Phase =
   | "awaiting_summary"
@@ -9,6 +9,7 @@ export type Phase =
   | "quest"
   | "quest_gate"
   | "concept"
+  | "find"
   | "done";
 
 export type LectureStatus = "incomplete" | "complete";
@@ -93,6 +94,12 @@ export interface OfferedQuest {
   why: string;
 }
 
+export interface OfferedCourse {
+  title: string;
+  url: string;
+  why: string;
+}
+
 export interface DebriefCard {
   corrections: string[];
   gaps: string[];
@@ -166,7 +173,7 @@ export interface SessionSnapshot {
   quiz?: QuizItem;
   quizQueue: string[];
   coveredConcepts: string[];
-  quizMode?: "after_debrief" | "review" | "quest" | "concept";
+  quizMode?: "after_debrief" | "review" | "course_end" | "quest" | "concept";
   pendingCorrection?: string;
   wantQuestQuiz?: boolean;
   questTeachbackOk?: boolean;
@@ -175,8 +182,10 @@ export interface SessionSnapshot {
   inspect: InspectPayload;
   messages: ChatMessage[];
   offeredQuests: OfferedQuest[];
+  offeredCourses?: OfferedCourse[];
   busy: boolean;
   workingOn?: string;
+  generatingOutline?: string[];
   error?: string;
 }
 

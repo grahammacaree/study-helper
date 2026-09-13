@@ -1,3 +1,4 @@
+import { seedConceptOutline } from "../conceptOutline";
 import type {
   AuthStatus,
   CatalogPayload,
@@ -345,6 +346,33 @@ export const SCENARIOS: {
     }),
   },
   {
+    id: "find",
+    label: "New course",
+    note: "Topic chat; pick a public lecture series; Ask only",
+    session: session({
+      kind: "find",
+      phase: "find",
+      courseId: "",
+      questTitle: "Game theory",
+      offeredCourses: [
+        {
+          title: "Yale ECON 159 — Game Theory",
+          url: "https://oyc.yale.edu/economics/econ-159",
+          why: "Full video lecture series with a public listing.",
+        },
+      ],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          kind: "text",
+          text: "Yale's ECON 159 is the usual freely available video series. MIT OCW has notes-heavy options if you want more problem sets skipped.",
+          at: 1,
+        },
+      ],
+    }),
+  },
+  {
     id: "quest",
     label: "Side quest",
     note: "Own chat pane; Done stays off until teach-back and quiz",
@@ -386,6 +414,60 @@ export const SCENARIOS: {
     }),
   },
   {
+    id: "concept-quiz",
+    label: "Concept quiz",
+    note: "Teaching hidden during the check; item in the chat pane",
+    session: session({
+      kind: "concept",
+      phase: "quiz_item",
+      quizMode: "concept",
+      conceptId: "hashing",
+      questTitle: "Hashing",
+      offersConceptQuiz: true,
+      quizQueue: ["hashing"],
+      quiz: {
+        conceptId: "hashing",
+        prompt: "What does the load factor $\\alpha = n/m$ measure?",
+        choices: [
+          { id: "a", text: "How full the table is." },
+          { id: "b", text: "The bit width of $h$." },
+        ],
+        correctId: "a",
+        why: "Items over slots.",
+        index: 1,
+        total: 1,
+      },
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          kind: "text",
+          text: "A hash family maps keys into $\\{0,\\ldots,m-1\\}$. Reach for it when you want expected $O(1)$ under a load factor $\\alpha = n/m$.\n\n## From lectures\n- Intro to Algorithms L4: Hashing",
+          at: 1,
+        },
+        {
+          id: "m2",
+          role: "assistant",
+          kind: "quiz",
+          text: "What does the load factor $\\alpha = n/m$ measure?",
+          at: 2,
+          quiz: {
+            conceptId: "hashing",
+            prompt: "What does the load factor $\\alpha = n/m$ measure?",
+            choices: [
+              { id: "a", text: "How full the table is." },
+              { id: "b", text: "The bit width of $h$." },
+            ],
+            correctId: "a",
+            why: "Items over slots.",
+            index: 1,
+            total: 1,
+          },
+        },
+      ],
+    }),
+  },
+  {
     id: "concept-gen",
     label: "Concept generating",
     note: "New concept clears the old teaching; Quiz off; one Working row",
@@ -398,6 +480,7 @@ export const SCENARIOS: {
       offersConceptQuiz: true,
       busy: true,
       workingOn: "Generating text…",
+      generatingOutline: seedConceptOutline("Hashing", "Algorithms"),
       messages: [
         {
           id: "m1",

@@ -5,6 +5,7 @@ import {
   answerAsk,
   createStudyAgent,
   gradeTeachback,
+  judgeQuestTopic,
   newPriming,
   rewriteLearnerNotes,
   runDebrief,
@@ -12,6 +13,7 @@ import {
   openQuestPlan,
   writeQuizSet,
   draftConceptTeaching,
+  scoutCourse,
   type ContextSlice,
 } from "./agent.js";
 import {
@@ -22,6 +24,12 @@ import {
   relatedConcepts,
   type Catalog,
 } from "./catalog.js";
+import { seedConceptOutline } from "./conceptOutline.js";
+import {
+  initCourseFromUrl,
+  looksLikeCourseUrl,
+  matchExistingCourse,
+} from "./initCourse.js";
 import {
   addQuest,
   formatConceptTeaching,
@@ -48,13 +56,14 @@ import {
   normalizeLectureStatus,
 } from "./lectureProgress.js";
 import { lecturesForConcept, coursesForConcept, unlockedConceptIds } from "./library.js";
-import { conceptsFromDoneQuests } from "./questConcept.js";
+import { conceptsFromDoneQuests, matchExistingConcept } from "./questConcept.js";
 import {
   hitConceptIds,
   pickCourseReview,
   pickDebriefMix,
   relatedToLecture,
   shouldOfferDebriefQuiz,
+  importanceForCourse,
 } from "./quizPick.js";
 import { readAllSessions, writeSession } from "./store.js";
 import type {
@@ -62,6 +71,7 @@ import type {
   ChatMessage,
   InspectPayload,
   LectureStatus,
+  OfferedCourse,
   OfferedQuest,
   Phase,
   QuizItem,
@@ -86,7 +96,7 @@ interface Session {
   quiz?: QuizItem;
   quizQueue: string[];
   quizBank: QuizItem[];
-  quizMode?: "after_debrief" | "review" | "quest" | "concept";
+  quizMode?: "after_debrief" | "review" | "course_end" | "quest" | "concept";
   wantQuestQuiz?: boolean;
   questTeachbackOk?: boolean;
   questQuizOk?: boolean;
@@ -96,6 +106,8 @@ interface Session {
   inspect: InspectPayload;
   messages: ChatMessage[];
   offeredQuests: OfferedQuest[];
+  offeredCourses: OfferedCourse[];
+  generatingOutline?: string[];
   busy: boolean;
   workingOn?: string;
   error?: string;
@@ -235,58 +247,124 @@ export function getSession(id: string, _lite?: boolean): SessionSnapshot {
   return snapshot(get(id));
 }
 
+/** Local match, else one agent turn. Rejects people/trivia; never writes the library. */
+async function resolveNewQuestTitle(
+  title: string,
+  concepts: Catalog["concepts"],
+): Promise<
+  { kind: "concept"; conceptId: string } | { kind: "quest"; title: string }
+> {
+  const hit = matchExistingConcept(concepts, title);
+  if (hit) return { kind: "concept", conceptId: hit.id };
+  const questAgent = await createStudyAgent();
+  try {
+    const verdict = await judgeQuestTopic({
+      agent: questAgent,
+      title,
+      concepts,
+    });
+    if (!verdict.ok) throw new Error(verdict.reason);
+    if (verdict.existingId && concepts[verdict.existingId]) {
+      return { kind: "concept", conceptId: verdict.existingId };
+    }
+    return { kind: "quest", title: verdict.name.trim() || title.trim() };
+  } finally {
+    try {
+      await questAgent.close();
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 export async function startSession(input: {
   kind: SessionKind;
-  courseId: string;
+  courseId?: string;
   lectureN?: number;
   questTitle?: string;
   questId?: string;
   conceptId?: string;
 }): Promise<SessionSnapshot> {
   const catalog = await loadCatalog();
-  const course = courseOf(catalog, input.courseId);
-  if (input.kind === "debrief") {
-    if (input.lectureN == null) {
-      throw new Error("lectureN is required for debrief.");
+  const learner = await loadLearner();
+  if (input.kind === "find") {
+    const topic = input.questTitle?.trim();
+    if (!topic) throw new Error("Say a topic or paste a course URL.");
+    const hit = matchExistingCourse(catalog.courses, topic);
+    if (hit) {
+      throw new Error(`${hit.title} is already in the catalog.`);
     }
-    lectureOf(catalog, input.courseId, input.lectureN);
-  } else if (input.kind === "quiz") {
-    if (!course.complete) {
-      throw new Error("Review is only on a finished course.");
+  } else {
+    if (!input.courseId) throw new Error("courseId is required.");
+    const courseId = input.courseId;
+    const course = courseOf(catalog, courseId);
+    if (input.kind === "debrief") {
+      if (input.lectureN == null) {
+        throw new Error("lectureN is required for debrief.");
+      }
+      lectureOf(catalog, courseId, input.lectureN);
+    } else if (input.kind === "quiz") {
+      const hinted = applyProgressHints(learner.progress, catalog);
+      const lectures = (catalog.lectures[courseId] ?? []).map((lec) => ({
+        n: lec.n,
+        status: normalizeLectureStatus(
+          hinted.progress[courseId]?.[String(lec.n)],
+        ),
+      }));
+      const next = nextIncompleteLectureN(lectures);
+      if (next != null && !course.complete) {
+        throw new Error("Review is only on a finished course.");
+      }
+    } else if (input.kind === "concept") {
+      if (!input.conceptId) throw new Error("conceptId is required.");
+    } else if (input.kind !== "quest") {
+      throw new Error("Unknown session kind.");
     }
-  } else if (input.kind === "concept") {
-    if (!input.conceptId) throw new Error("conceptId is required.");
-  } else if (input.kind !== "quest") {
-    throw new Error("Unknown session kind.");
+
+    if (input.kind === "debrief") {
+      const hinted = applyProgressHints(learner.progress, catalog);
+      const lectures = (catalog.lectures[courseId] ?? []).map((lec) => ({
+        n: lec.n,
+        status: normalizeLectureStatus(
+          hinted.progress[courseId]?.[String(lec.n)],
+        ),
+      }));
+      const next = nextIncompleteLectureN(lectures);
+      if (next !== input.lectureN) {
+        throw new Error(
+          next == null
+            ? "This course is already complete."
+            : `Finish lecture ${next} before later ones.`,
+        );
+      }
+    }
+  }
+  let questTitle = input.questTitle?.trim();
+  if (input.kind === "quest" && questTitle && !input.questId) {
+    const resolved = await resolveNewQuestTitle(questTitle, catalog.concepts);
+    if (resolved.kind === "concept") {
+      return startSession({
+        kind: "concept",
+        courseId: input.courseId,
+        conceptId: resolved.conceptId,
+      });
+    }
+    questTitle = resolved.title;
   }
 
-  const learner = await loadLearner();
-  if (input.kind === "debrief") {
-    const hinted = applyProgressHints(learner.progress, catalog);
-    const lectures = (catalog.lectures[input.courseId] ?? []).map((lec) => ({
-      n: lec.n,
-      status: normalizeLectureStatus(
-        hinted.progress[input.courseId]?.[String(lec.n)],
-      ),
-    }));
-    const next = nextIncompleteLectureN(lectures);
-    if (next !== input.lectureN) {
-      throw new Error(
-        next == null
-          ? "This course is already complete."
-          : `Finish lecture ${next} before later ones.`,
-      );
-    }
-  }
-  const inspect = await buildInspect(catalog, learner, input);
+  const inspect = await buildInspect(catalog, learner, {
+    ...input,
+    courseId: input.courseId ?? "",
+    questTitle,
+  });
   const id = randomUUID();
   const s: Session = {
     id,
     kind: input.kind,
     phase: phaseForStart(input.kind),
-    courseId: input.courseId,
+    courseId: input.courseId ?? "",
     lectureN: input.lectureN,
-    questTitle: input.questTitle,
+    questTitle: questTitle ?? input.questTitle,
     questId: input.questId,
     conceptId: input.conceptId,
     quizQueue: [],
@@ -296,19 +374,20 @@ export async function startSession(input: {
     inspect,
     messages: [],
     offeredQuests: [],
+    offeredCourses: [],
     busy: false,
     primed: newPriming(),
   };
 
   if (input.kind === "debrief") {
-    const lec = lectureOf(catalog, input.courseId, input.lectureN as number);
+    const lec = lectureOf(catalog, input.courseId as string, input.lectureN as number);
     push(s, {
       role: "assistant",
       kind: "status",
       text: `Lecture ${lec.n}: ${lec.title}. Paste the summary you wrote. I will check the ideas, not the handwriting.`,
     });
   } else if (input.kind === "quest") {
-    const title = input.questTitle?.trim();
+    const title = questTitle;
     if (!title && !input.questId) {
       throw new Error("Side quest needs a title or an existing quest id.");
     }
@@ -332,6 +411,7 @@ export async function startSession(input: {
     }
     s.inspect = await buildInspect(catalog, learner, {
       ...input,
+      courseId: input.courseId ?? "",
       questTitle: s.questTitle,
     });
   }
@@ -347,6 +427,9 @@ export async function startSession(input: {
   }
   if (input.kind === "concept") {
     return startConceptFlow(s);
+  }
+  if (input.kind === "find") {
+    return startFindFlow(s);
   }
   return snapshot(s);
 }
@@ -390,6 +473,10 @@ export async function submitAsk(
   const s = get(id);
   return withBusy(s, async () => {
     push(s, { role: "user", kind: "text", text });
+    if (s.kind === "find" && s.phase === "find") {
+      await findTurn(s, text);
+      return;
+    }
     const ctx = await contextOf(s);
     const reply = await withAgent(s, (agent) =>
       answerAsk({ agent, primed: s.primed, ctx, question: text }),
@@ -416,12 +503,13 @@ export async function skipItem(id: string): Promise<SessionSnapshot> {
     if (s.phase === "quiz_item" && s.quiz) {
       if (
         s.quizMode === "after_debrief" ||
+        s.quizMode === "course_end" ||
         s.quizMode === "quest" ||
         s.quizMode === "concept"
       ) {
         throw new Error(
-          s.quizMode === "after_debrief"
-            ? "This mix is part of the debrief — pick an answer."
+          s.quizMode === "after_debrief" || s.quizMode === "course_end"
+            ? "This mix is part of finishing — pick an answer."
             : "Get this one right to continue.",
         );
       }
@@ -461,8 +549,24 @@ export async function acceptQuest(
   title?: string,
 ): Promise<SessionSnapshot> {
   const s = get(id);
-  const pick = title ?? s.offeredQuests[0]?.title;
-  if (!pick) throw new Error("No side quest to accept.");
+  const raw = title ?? s.offeredQuests[0]?.title;
+  if (!raw) throw new Error("No side quest to accept.");
+  const offered = s.offeredQuests.some((q) => q.title === raw.trim());
+  let pick = raw.trim();
+  if (!offered) {
+    const catalog = await loadCatalog();
+    const resolved = await resolveNewQuestTitle(pick, catalog.concepts);
+    if (resolved.kind === "concept") {
+      s.phase = "done";
+      await persist(s);
+      return startSession({
+        kind: "concept",
+        courseId: s.courseId,
+        conceptId: resolved.conceptId,
+      });
+    }
+    pick = resolved.title;
+  }
   const learner = await loadLearner();
   learner.sideQuests = addQuest(learner.sideQuests, {
     title: pick,
@@ -482,6 +586,17 @@ export async function acceptQuest(
     questId: created.id,
     questTitle: created.title,
   });
+}
+
+export async function pickCourse(
+  id: string,
+  url: string,
+): Promise<SessionSnapshot> {
+  const s = get(id);
+  if (s.kind !== "find" || s.phase !== "find") {
+    throw new Error("No course pick in progress.");
+  }
+  return withBusy(s, () => commitPickedCourse(s, url), "Adding the course…");
 }
 
 export async function finishQuest(
@@ -632,6 +747,7 @@ export async function finishSession(id: string): Promise<SessionSnapshot> {
         dropQuizThread(s);
         s.phase = "concept";
         s.quiz = undefined;
+        s.quizMode = undefined;
         await persist(s);
         return;
       }
@@ -665,10 +781,22 @@ export async function finishSession(id: string): Promise<SessionSnapshot> {
 export async function quitSession(id: string): Promise<SessionSnapshot> {
   const s = get(id);
   if (
-    s.quizMode === "after_debrief" &&
+    (s.quizMode === "after_debrief" || s.quizMode === "course_end") &&
     (s.phase === "quiz_item" || s.phase === "quiz_wrap")
   ) {
     throw new Error("Finish the mix to close the debrief.");
+  }
+  if (s.kind === "find") {
+    s.phase = "done";
+    s.offeredCourses = [];
+    push(s, {
+      role: "assistant",
+      kind: "status",
+      text: "Left without adding a course.",
+    });
+    await persist(s);
+    await closeAgent(s);
+    return snapshot(s);
   }
   if (s.kind === "quest" && s.questId) {
     const learner = await loadLearner();
@@ -696,6 +824,7 @@ export async function cancelWork(id: string): Promise<SessionSnapshot> {
   s.cancel?.abort();
   s.busy = false;
   s.workingOn = undefined;
+  s.generatingOutline = undefined;
   return snapshot(s);
 }
 
@@ -703,8 +832,81 @@ async function startQuizQueue(s: Session): Promise<SessionSnapshot> {
   return withBusy(s, () => writeAndEmitQuiz(s), "Writing quiz…");
 }
 
+async function startFindFlow(s: Session): Promise<SessionSnapshot> {
+  return withBusy(s, () => findTurn(s), "Looking for lecture series…");
+}
+
+async function findTurn(s: Session, message?: string): Promise<void> {
+  const topic = s.questTitle?.trim();
+  if (!topic) throw new Error("Say a topic or paste a course URL.");
+  if (message && looksLikeCourseUrl(message)) {
+    await commitPickedCourse(s, message.trim());
+    return;
+  }
+  const catalog = await loadCatalog();
+  const already = catalog.courses.map((c) => ({
+    id: c.id,
+    title: c.title,
+    sourceUrl: c.sourceUrl,
+  }));
+  const scout = await withAgent(s, (agent) =>
+    scoutCourse({
+      agent,
+      topic,
+      already,
+      message,
+    }),
+  );
+  s.offeredCourses = scout.offers;
+  push(s, { role: "assistant", kind: "text", text: scout.reply });
+  if (scout.pickUrl) {
+    await commitPickedCourse(s, scout.pickUrl);
+  }
+}
+
+async function commitPickedCourse(s: Session, rawUrl: string): Promise<void> {
+  const result = await initCourseFromUrl(rawUrl);
+  s.courseId = result.course.id;
+  s.offeredCourses = [];
+  s.phase = "done";
+  const n = result.lectureCount;
+  push(s, {
+    role: "assistant",
+    kind: "status",
+    text:
+      n <= 1
+        ? `Added ${result.course.title}. The public page only yielded one lecture row — say if you have a better listing URL.`
+        : `Added ${result.course.title} · ${n} lectures. Concept tags start empty.`,
+  });
+  await closeAgent(s);
+}
+
 async function startQuestFlow(s: Session): Promise<SessionSnapshot> {
   return withBusy(s, () => openQuest(s), "Opening the quest…");
+}
+
+export async function switchConcept(
+  id: string,
+  conceptId: string,
+): Promise<SessionSnapshot> {
+  const s = get(id);
+  if (s.kind !== "concept") {
+    throw new Error("Only a concept session can open another concept.");
+  }
+  if (!conceptId.trim()) throw new Error("conceptId is required.");
+  if (s.busy) {
+    s.cancel?.abort();
+    s.busy = false;
+    s.workingOn = undefined;
+    s.cancel = undefined;
+  }
+  s.conceptId = conceptId;
+  s.phase = "concept";
+  s.quiz = undefined;
+  s.quizQueue = [];
+  s.quizBank = [];
+  s.quizMode = undefined;
+  return startConceptFlow(s);
 }
 
 async function startConceptFlow(s: Session): Promise<SessionSnapshot> {
@@ -717,10 +919,18 @@ async function startConceptFlow(s: Session): Promise<SessionSnapshot> {
   if (!def) throw new Error("Unknown concept.");
   s.questTitle = def.name;
   s.offersConceptQuiz = Boolean(def.parentId);
+  const related = relatedConcepts(quested.concepts, id);
   const stored = (await teachingsForIds([id]))[id]?.trim();
   if (stored) {
-    return withBusy(s, () => openConcept(s), "Generating text…");
+    s.generatingOutline = undefined;
+    await openConcept(s);
+    return snapshot(s);
   }
+  s.generatingOutline = seedConceptOutline(
+    def.name,
+    def.parentId ? quested.concepts[def.parentId]?.name : undefined,
+    related.map((row) => row.name),
+  );
   s.messages = [];
   push(s, {
     role: "assistant",
@@ -879,6 +1089,9 @@ async function openConcept(s: Session): Promise<void> {
           : undefined,
         related,
         sources,
+        onOutline: (beats) => {
+          s.generatingOutline = beats;
+        },
       }),
     );
     advancePriming(s.primed);
@@ -914,6 +1127,7 @@ async function openConcept(s: Session): Promise<void> {
   }
   body = cleaned;
   const lectures = lecturesForConcept(catalog, hinted.progress, id);
+  s.generatingOutline = undefined;
   s.messages = [];
   push(s, {
     role: "assistant",
@@ -1123,10 +1337,12 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
     const hitSet = new Set(hits);
     const mode = s.quizMode ?? (s.lectureN == null ? "review" : "after_debrief");
     s.quizMode = mode;
-    if (mode === "review") {
+    if (mode === "review" || mode === "course_end") {
+      const courseHits = hitConceptIds(catalog, hinted.progress, s.courseId);
       s.quizQueue = pickCourseReview(
-        hitConceptIds(catalog, hinted.progress, s.courseId),
+        courseHits,
         freshness,
+        importanceForCourse(catalog, s.courseId, courseHits),
       );
     } else {
       const lecture = lectureOf(catalog, s.courseId, s.lectureN as number);
@@ -1162,7 +1378,9 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
       role: "assistant",
       kind: "status",
       text:
-        mode === "review"
+        mode === "course_end"
+          ? `Course review: ${s.quizBank.length} concept${s.quizBank.length === 1 ? "" : "s"} from this course, weighted toward the ones that do more work here. Multiple choice, no timer.`
+          : mode === "review"
           ? `Review: ${s.quizBank.length} concept${s.quizBank.length === 1 ? "" : "s"} from this course. Multiple choice, no timer.`
           : `Five questions: three from this lecture, two from things going cold. Multiple choice, no timer.`,
     });
@@ -1178,6 +1396,8 @@ async function emitQuizItem(s: Session): Promise<void> {
     if (s.kind === "concept") {
       dropQuizThread(s);
       s.phase = "concept";
+      s.quiz = undefined;
+      s.quizMode = undefined;
       await persist(s);
       return;
     }
@@ -1329,6 +1549,25 @@ async function finishDebrief(
       : "Stored as debriefed. Next session will read the files, not this chat.";
   push(s, { role: "assistant", kind: "status", text: stored });
   s.inspect = await refreshInspect(s);
+  const lectures = (catalog.lectures[s.courseId] ?? []).map((lec) => ({
+    n: lec.n,
+    status: normalizeLectureStatus(learner.progress[s.courseId]?.[String(lec.n)]),
+  }));
+  const remaining = nextIncompleteLectureN(lectures);
+  if (remaining == null) {
+    const courseHits = hitConceptIds(catalog, learner.progress, s.courseId);
+    if (courseHits.length) {
+      s.quizMode = "course_end";
+      push(s, {
+        role: "assistant",
+        kind: "status",
+        text: "Last lecture in the course. Five questions to close it: weighted toward the concepts that do more work here.",
+      });
+      await persist(s);
+      await writeAndEmitQuiz(s);
+      return;
+    }
+  }
   if (shouldOfferDebriefQuiz()) {
     s.quizMode = "after_debrief";
     push(s, {
@@ -1384,7 +1623,9 @@ async function contextOf(s: Session): Promise<ContextSlice> {
   const catalog = await loadCatalog();
   const learner = await loadLearner();
   const lecture =
-    s.lectureN != null ? lectureOf(catalog, s.courseId, s.lectureN) : undefined;
+    s.kind !== "find" && s.courseId && s.lectureN != null
+      ? lectureOf(catalog, s.courseId, s.lectureN)
+      : undefined;
   const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
   const conceptSources =
     s.kind === "concept" && s.conceptId
@@ -1411,7 +1652,9 @@ async function contextOf(s: Session): Promise<ContextSlice> {
       ].join("\n\n")
     : s.kind === "concept"
       ? "No course in Graham's library tags this concept. Do not name a course."
-      : catalog.blurbs[s.courseId] ?? "";
+      : s.kind === "find"
+        ? ""
+        : catalog.blurbs[s.courseId] ?? "";
   return {
     profile: learner.profile,
     courseBlurb: sourceBlock,
@@ -1453,6 +1696,18 @@ async function buildInspect(
     questTitle?: string;
   },
 ): Promise<InspectPayload> {
+  if (input.kind === "find" || !input.courseId) {
+    return {
+      courseId: "",
+      courseTitle: input.questTitle?.trim() || "New course",
+      courseBlurb: "",
+      knowledgeSlice: "",
+      lectureSummary: "",
+      sideQuests: learner.sideQuests.filter(
+        (q) => q.status === "open" || q.status === "parked",
+      ),
+    };
+  }
   const course = courseOf(catalog, input.courseId);
   const lecture =
     input.lectureN != null
@@ -1480,6 +1735,7 @@ function phaseForStart(kind: SessionKind): Phase {
   if (kind === "debrief") return "awaiting_summary";
   if (kind === "quiz") return "quiz_item";
   if (kind === "concept") return "concept";
+  if (kind === "find") return "find";
   return "quest";
 }
 
@@ -1488,6 +1744,7 @@ function workingLabel(s: Session): string {
   if (s.kind === "quiz") return "Writing a question…";
   if (s.kind === "quest") return "Opening the quest…";
   if (s.kind === "concept") return "Generating text…";
+  if (s.kind === "find") return "Looking for lecture series…";
   return "Working…";
 }
 
@@ -1534,6 +1791,7 @@ async function withBusy(
   } finally {
     s.busy = false;
     s.workingOn = undefined;
+    s.generatingOutline = undefined;
     s.cancel = undefined;
     await persist(s);
   }
@@ -1590,18 +1848,20 @@ function snapshot(s: Session): SessionSnapshot {
     conceptId: s.conceptId,
     offersConceptQuiz: s.offersConceptQuiz,
     debrief: s.debrief,
-    quiz: s.quiz,
-    quizQueue: s.quizQueue,
+    quiz: s.quiz ? { ...s.quiz, choices: s.quiz.choices.map((c) => ({ ...c })) } : undefined,
+    quizQueue: s.quizQueue.slice(),
     quizMode: s.quizMode,
-    coveredConcepts: s.coveredConcepts,
+    coveredConcepts: s.coveredConcepts.slice(),
     pendingCorrection: s.pendingCorrection,
     wantQuestQuiz: s.wantQuestQuiz,
     questTeachbackOk: s.questTeachbackOk,
     questQuizOk: s.questQuizOk,
     teachback: s.teachback,
     inspect: s.inspect,
-    messages: s.messages,
-    offeredQuests: s.offeredQuests,
+    messages: s.messages.map((msg) => ({ ...msg })),
+    offeredQuests: s.offeredQuests.slice(),
+    offeredCourses: s.offeredCourses.slice(),
+    generatingOutline: s.generatingOutline?.slice(),
     busy: s.busy,
     workingOn: s.workingOn,
     error: s.error,
@@ -1609,12 +1869,14 @@ function snapshot(s: Session): SessionSnapshot {
 }
 
 function persistable(s: Session): unknown {
-  const { agent, primed, agentQueue, cancel, rewrite, ...rest } = s;
+  const { agent, primed, agentQueue, cancel, rewrite, generatingOutline, ...rest } =
+    s;
   void agent;
   void primed;
   void agentQueue;
   void cancel;
   void rewrite;
+  void generatingOutline;
   return rest;
 }
 
@@ -1632,7 +1894,10 @@ function hydrate(raw: unknown): Session | undefined {
   return {
     id: o.id,
     kind:
-      o.kind === "quiz" || o.kind === "quest" || o.kind === "concept"
+      o.kind === "quiz" ||
+      o.kind === "quest" ||
+      o.kind === "concept" ||
+      o.kind === "find"
         ? o.kind
         : "debrief",
     phase: (o.phase as Phase) || "done",
@@ -1656,6 +1921,7 @@ function hydrate(raw: unknown): Session | undefined {
     inspect: o.inspect,
     messages: o.messages,
     offeredQuests: o.offeredQuests ?? [],
+    offeredCourses: o.offeredCourses ?? [],
     busy: false,
     workingOn: undefined,
     error: o.error,

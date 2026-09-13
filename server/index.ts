@@ -10,11 +10,13 @@ import {
   finishSession,
   getSession,
   nextAfterQuestion,
+  pickCourse,
   quitSession,
   restoreSessions,
   skipItem,
   startConceptQuiz,
   startSession,
+  switchConcept,
   submitAsk,
   submitTeachback,
 } from "./session.js";
@@ -67,7 +69,7 @@ app.post("/api/sessions", async (req, res) => {
       questId?: string;
       conceptId?: string;
     };
-    if (!kind || !courseId) {
+    if (!kind || (kind !== "find" && !courseId)) {
       res.status(400).json({ error: "kind and courseId are required." });
       return;
     }
@@ -131,6 +133,14 @@ app.post(
 app.post(
   "/api/sessions/:id/concept-quiz",
   postHandler((id) => startConceptQuiz(id)),
+);
+app.post(
+  "/api/sessions/:id/open-concept",
+  postHandler((id, body) => switchConcept(id, String(body.conceptId ?? ""))),
+);
+app.post(
+  "/api/sessions/:id/pick-course",
+  postHandler((id, body) => pickCourse(id, String(body.url ?? ""))),
 );
 app.post(
   "/api/sessions/:id/quest-status",

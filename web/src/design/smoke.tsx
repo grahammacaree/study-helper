@@ -2,6 +2,7 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import { StudyView, type StudyActions } from "../components/StudyView";
 import { insertTex } from "../components/SymbolPicker";
+import { seedConceptOutline } from "../conceptOutline";
 import { AUTH_MISSING, AUTH_OK, FIX_CATALOG, SCENARIOS } from "./fixtures";
 import { Prose } from "../prose";
 
@@ -16,6 +17,7 @@ const actions: StudyActions = {
   onNewQuest: () => undefined,
   onInitCourse: () => undefined,
   onPickQuiz: () => undefined,
+  onPickCourse: () => undefined,
   onConcept: () => undefined,
 };
 
@@ -69,6 +71,21 @@ for (const s of SCENARIOS) {
   }
   if (!html.includes("Concept library")) {
     fail(s.id, "pane should be titled Concept library");
+  }
+  if (html.includes(">Initialise<") || html.includes(">Start<")) {
+    fail(s.id, "add form should use an arrow, not Initialise/Start");
+  }
+  if (!html.includes(">New<")) {
+    fail(s.id, "add form needs a New heading");
+  }
+  if (!html.includes("Add course")) {
+    fail(s.id, "add form needs an add-course control");
+  }
+  if (html.includes("OCW course URL")) {
+    fail(s.id, "course add should not assume OCW");
+  }
+  if (!html.includes("Game theory")) {
+    fail(s.id, "course add needs a topic placeholder");
   }
 
   if (!s.session) {
@@ -180,14 +197,21 @@ for (const s of SCENARIOS) {
     }
   }
 
-  if (s.session.quizMode === "after_debrief") {
+  if (s.session.quizMode === "after_debrief" || s.session.quizMode === "course_end") {
     if (html.includes("Skip this") || html.includes("Not now")) {
-      fail(s.id, "after-debrief mix must not be skippable");
+      fail(s.id, "closing mix must not be skippable");
     }
   }
 
   if (html.includes(">Lectures<")) {
     fail(s.id, "Lectures button should not sit on chat");
+  }
+
+  if (s.id === "find") {
+    if (!html.includes(">Game theory<")) fail(s.id, "find pane should name the topic");
+    if (!html.includes("Yale ECON 159")) fail(s.id, "find pane should offer a series to pick");
+    if (html.includes(">Teach-back<")) fail(s.id, "find pane should not have Teach-back");
+    if (!html.includes(">Quit<")) fail(s.id, "find pane should let him quit");
   }
 
   if (s.id === "concept") {
@@ -213,10 +237,30 @@ for (const s of SCENARIOS) {
     }
   }
 
+  if (s.id === "concept-quiz") {
+    if (!html.includes(">Hashing<")) fail(s.id, "quiz pane should keep the concept title");
+    if (html.includes("hash family") || html.includes("From lectures")) {
+      fail(s.id, "concept teaching should hide during quiz");
+    }
+    if (!html.includes("How full the table is.")) {
+      fail(s.id, "quiz choices should show");
+    }
+    if (html.includes(">Quiz<")) {
+      fail(s.id, "Quiz chip should not sit on the check");
+    }
+  }
+
   if (s.id === "concept-gen") {
     if (!html.includes(">Hashing<")) fail(s.id, "generating pane should take the new title");
-    if (!html.includes("Generating text")) {
-      fail(s.id, "generating pane should clear the old teaching");
+    const firstBeat = seedConceptOutline("Hashing", "Algorithms")[0];
+    if (!html.includes(firstBeat)) {
+      fail(s.id, "generating pane should show one outline beat");
+    }
+    if (html.includes("When you'd actually use this")) {
+      fail(s.id, "generating pane should cycle a single line, not list every beat");
+    }
+    if (!html.includes("Working")) {
+      fail(s.id, "composer should say Working, not the beat");
     }
     if (html.includes("hash family")) {
       fail(s.id, "old concept body should not linger");

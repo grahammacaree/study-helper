@@ -1,8 +1,10 @@
 # Study helper
 
-A local companion for self-directed maths. Not an exam coach, not homework police, not a grader. You pick courses, watch a lecture, write a summary, and this app debriefs the ideas — chill, encouraging, and unwilling to let a backwards definition slide. Those ideas land in a concept library you can reopen later (Ask, and Quiz on non-roots). Side quests are detours off the lecture map.
+A local companion for self-directed maths. Not an exam coach, not homework police, not a grader. You pick a public lecture series, watch, **write a summary**, and only then does a model debrief the ideas — chill, encouraging, and unwilling to let a backwards definition slide. Nodes you have actually met land in a concept library (open to read; Quiz hides the notes). Side quests are conceptual detours you teach back before they can join that library.
 
 It is personal software on your machine. The public GitHub copy is the app, not your curriculum or notes.
+
+**Why it exists** — friction, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
 
 Sibling of the [code-review walkthrough](https://github.com/grahammacaree/code-review-helper): Vite + Express + `@cursor/sdk`, host-owned sessions, one Cursor agent per session, file memory.
 
@@ -34,8 +36,8 @@ Both bind to `127.0.0.1`. Ports are offset from the review helper (5173/8787) so
 
 Three panes:
 
-1. **Courses** — current courses, completed courses, and (only if any exist) active side quests. At the bottom, Course / Side quest tabs to initialise a course URL or start a quest by title.
-2. **Centre** — the lecture map for the selected course, or a chat (debrief, quiz/review, concept, or side quest).
+1. **Courses** — current courses, completed courses, and (only if any exist) active side quests. At the bottom, Course / Side quest tabs: a topic (or a listing URL) starts a new course, or a quest title starts a quest.
+2. **Centre** — the lecture map for the selected course, or a chat (debrief, quiz/review, concept, side quest, or picking a new course).
 3. **Concept library** — unlocked concepts as a tree. Hide it with the chevron.
 
 `$...$` and `$$...$$` render as KaTeX in both directions. Skipping problem sets is fine.
@@ -44,7 +46,7 @@ Three panes:
 
 ### Adding a course
 
-Paste an OCW (or similar) **https** course URL in the left nav. The host fetches the public page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash.
+Type a topic (`game theory`) or paste a public listing **https** URL in the left nav. A URL (or a name already in the catalog) is enough. A topic opens a centre-pane chat about freely available video lecture series — MIT OCW calendars, Yale Open Courses, Harvard Stat 110, Caltech Learning from Data, and similar public listings. Pick one; the host fetches that page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash. The bar for what counts as a series is in [docs/why.md](docs/why.md#selecting-a-new-course).
 
 Unstarted courses can sit in `courses/index.json` with `"track": "later"` so they stay off Current and Completed until you mean to study them.
 
@@ -56,17 +58,19 @@ Pick a course. Only the next incomplete lecture is open: **Debrief** starts a se
 
 Paste the summary you wrote. The model checks conceptual mistakes (reduction direction, proven vs conjectured, hardness vs completeness, …) and may note a structural gap. Saying the correction back is optional; **Leave shaky** stores the wobble. **Finish** anytime before a closing quiz. **Side quest** starts a detour from this debrief (or say you want one in the summary).
 
-About one in five debriefs then starts a **five-question mix** (three from that lecture, two colder, including older courses). That mix is part of finishing: no skip, no quit until it is done. Items are conceptual — definitions, direction of implication, how you would attack a problem — never a calculation. The host picks the queue; the model writes the set in one call; grading the pick is local.
+About one in five **non-final** debriefs then starts a **five-question mix** (three from that lecture, two colder, including older courses). That mix is part of finishing: no skip, no quit until it is done. Items are conceptual — definitions, direction of implication, how you would attack a problem — never a calculation. The host picks the queue; the model writes the set in one call; grading the pick is local.
+
+Finishing the **last** lecture always starts a five-question **course review**, also no skip. The host weights toward concepts that do more work in that course (tagged on more lectures, parents of other tagged concepts, seeAlso links), with coldness as a tie-breaker — not a random leaf.
 
 ### Review
 
-On a **finished** course (`complete` in the catalog), **Review** is optional: five unique concepts from that course, coldest first. Skip is allowed.
+On a finished course (every lecture complete), **Review** is an optional retake of that same five-concept pick. Skip is allowed on a retake.
 
 ### Concept library
 
 A node appears if a **complete** lecture tags it, plus ancestors so the tree can stand, plus concepts from **done** side quests. Incomplete lectures stay hidden. Fresh concepts get a slight emphasis; opening a concept does not count as restudy. **Ask** or starting a concept **Quiz** does.
 
-Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching stays on screen during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Host-owned “see also” links jump to other concepts.
+Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Host-owned “see also” links jump to other concepts.
 
 ### Side quests
 
@@ -97,7 +101,7 @@ Long-term memory is files, not chat history. A new session starts a **new** Curs
 
 `latest` / `complete` seed progress on load and will not downgrade a complete lecture. Neighbour **echoes** (seeing Chebyshev next to Hoeffding) slow decay; they are not a restudy.
 
-[docs/token-efficiency.md](docs/token-efficiency.md) has measured prompt sizes (`npm run check:measure`).
+[docs/why.md](docs/why.md) is the intent. [docs/token-efficiency.md](docs/token-efficiency.md) has measured prompt sizes (`npm run check:measure`).
 
 ## Data and security
 
@@ -122,6 +126,7 @@ Delete `data/`, `courses/`, and `.env` for a clean slate.
 | `web/` | Three-pane UI |
 | `web/src/design/` | Design-mode fixtures + headless check |
 | `checks/` | Catalog / quiz / decay / quests / token-size scripts |
+| `docs/why.md` | Motivation, friction, earning the library, picking a course |
 | `docs/token-efficiency.md` | What each prompt sends |
 | `templates.md` | Sketch of debrief/quiz shapes; live instructions live in `server/agent.ts` |
 

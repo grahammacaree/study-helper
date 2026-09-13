@@ -14,8 +14,9 @@
     "check:decay": "tsx checks/decay.ts",
     "check:progress": "tsx checks/lecture-progress.ts",
     "check:quests": "tsx checks/quests.ts",
+    "check:init": "tsx checks/init-course.ts",
     "check:measure": "tsx checks/measure-tokens.ts",
-    "check": "npm run check:catalog && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:measure && npm run design:check && npm run typecheck",
+    "check": "npm run check:catalog && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:init && npm run check:measure && npm run design:check && npm run typecheck",
     "build": "tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },

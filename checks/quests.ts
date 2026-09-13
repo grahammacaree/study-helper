@@ -1,5 +1,5 @@
 import { parseQuests, renderQuests, formatConceptTeaching, isSafeConceptFileId } from "../server/learner.js";
-import { conceptsFromDoneQuests, slugConceptId } from "../server/questConcept.js";
+import { conceptsFromDoneQuests, matchExistingConcept, slugConceptId } from "../server/questConcept.js";
 import { loadCatalog } from "../server/catalog.js";
 import {
   isQuestDisclaimer,
@@ -91,6 +91,15 @@ if (!stripped.includes("## What it is")) fail("kept the real heading");
 
 if (slugConceptId("Universal hashing") !== "universal-hashing") {
   fail(`slug ${slugConceptId("Universal hashing")}`);
+}
+if (matchExistingConcept({ hashing: { name: "Hashing" } }, "Hashing")?.id !== "hashing") {
+  fail("exact concept name should match");
+}
+if (matchExistingConcept({ hashing: { name: "Hashing" } }, "hashing")?.id !== "hashing") {
+  fail("concept slug should match");
+}
+if (matchExistingConcept({ hashing: { name: "Hashing" } }, "Ichiro Suzuki")) {
+  fail("a person name should not match a concept locally");
 }
 const catalog = await loadCatalog();
 const mapped = conceptsFromDoneQuests(catalog, [

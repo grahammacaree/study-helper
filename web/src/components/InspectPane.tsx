@@ -216,6 +216,8 @@ export function CourseNav({
   onCourse,
   onInit,
   initBusy,
+  busy,
+  error,
   auth,
   sideQuests = [],
   questId,
@@ -227,6 +229,8 @@ export function CourseNav({
   onCourse: (id: string) => void;
   onInit: (url: string) => void;
   initBusy?: boolean;
+  busy?: boolean;
+  error?: string | null;
   auth?: AuthStatus | null;
   sideQuests?: SideQuest[];
   questId?: string;
@@ -304,14 +308,13 @@ export function CourseNav({
           if (adding === "quest") {
             if (!questTitle.trim()) return;
             onNewQuest?.(questTitle.trim());
-            setQuestTitle("");
             return;
           }
           if (!url.trim()) return;
           onInit(url.trim());
-          setUrl("");
         }}
       >
+        <h2>New</h2>
         <div className="add-item-head">
           <div className="add-item-mode" role="tablist" aria-label="What to add">
             <button
@@ -346,36 +349,45 @@ export function CourseNav({
             adding === "quest" ? "tab-add-quest" : "tab-add-course"
           }
         >
-          {adding === "quest" ? (
-            <input
-              id="add-item-field"
-              value={questTitle}
-              placeholder="Taylor series"
-              aria-label="Quest title"
-              onChange={(e) => setQuestTitle(e.target.value)}
-            />
-          ) : (
-            <input
-              id="add-item-field"
-              type="url"
-              value={url}
-              placeholder="OCW course URL"
-              aria-label="Course URL"
-              disabled={initBusy}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          )}
-          <button
-            type="submit"
-            className="secondary"
-            disabled={
-              adding === "quest"
-                ? !questTitle.trim()
-                : initBusy || !url.trim()
-            }
-          >
-            {adding === "quest" ? "Start" : "Initialise"}
-          </button>
+          <div className="add-item-field">
+            {adding === "quest" ? (
+              <input
+                id="add-item-field"
+                value={questTitle}
+                placeholder="Taylor series"
+                aria-label="Quest title"
+                disabled={busy}
+                onChange={(e) => setQuestTitle(e.target.value)}
+              />
+            ) : (
+              <input
+                id="add-item-field"
+                value={url}
+                placeholder="Game theory"
+                aria-label="Course topic or URL"
+                disabled={initBusy || busy}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            )}
+            <button
+              type="submit"
+              className="add-item-go"
+              disabled={
+                busy ||
+                (adding === "quest"
+                  ? !questTitle.trim()
+                  : initBusy || !url.trim())
+              }
+              aria-label={adding === "quest" ? "Add side quest" : "Add course"}
+            >
+              <Octicon name="chevron-right" />
+            </button>
+          </div>
+          {error ? (
+            <p className="status error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
       </form>
     </nav>
@@ -415,14 +427,14 @@ export function CourseMap({
           {course ? (
             <p className="course-byline">{course.instructors}</p>
           ) : null}
-          {course && !course.complete && nextN != null ? (
+          {course && nextN != null ? (
             <div className="head-actions" role="group" aria-label="Course actions">
               <button type="button" onClick={() => onStart("debrief")}>
                 Debrief
               </button>
             </div>
           ) : null}
-          {course?.complete ? (
+          {course && nextN == null && course.lectures.length > 0 ? (
             <div className="head-actions" role="group" aria-label="Course actions">
               <button type="button" onClick={() => onStart("quiz")}>
                 Review

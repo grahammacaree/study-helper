@@ -1,7 +1,20 @@
 import type { AuthStatus, CatalogPayload, SessionSnapshot } from "./types";
 
 async function parse<T>(res: Response): Promise<T> {
-  const body = (await res.json()) as T & { error?: string };
+  const raw = await res.text();
+  if (!raw.trim()) {
+    throw new Error(
+      res.ok
+        ? "Study helper API returned an empty response."
+        : `Study helper API error (${res.status}).`,
+    );
+  }
+  let body: T & { error?: string };
+  try {
+    body = JSON.parse(raw) as T & { error?: string };
+  } catch {
+    throw new Error("Study helper API returned invalid JSON.");
+  }
   if (!res.ok) {
     throw new Error(body.error || res.statusText);
   }
@@ -48,8 +61,8 @@ export function initCourse(url: string): Promise<{
 
 export function createSession(
   input: {
-    kind: "debrief" | "quiz" | "quest" | "concept";
-    courseId: string;
+    kind: "debrief" | "quiz" | "quest" | "concept" | "find";
+    courseId?: string;
     lectureN?: number;
     questTitle?: string;
     questId?: string;
@@ -109,4 +122,8 @@ export const api = {
     post(id, "quest-status", { status }, signal),
   conceptQuiz: (id: string, signal?: AbortSignal) =>
     post(id, "concept-quiz", undefined, signal),
+  openConcept: (id: string, conceptId: string, signal?: AbortSignal) =>
+    post(id, "open-concept", { conceptId }, signal),
+  pickCourse: (id: string, url: string, signal?: AbortSignal) =>
+    post(id, "pick-course", { url }, signal),
 };

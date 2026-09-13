@@ -16,12 +16,14 @@ export type ChipAction =
 export function CommandBox({
   session,
   disabled,
+  ready = true,
   onSend,
   onAction,
   onInterrupt,
 }: {
   session: SessionSnapshot | null;
   disabled: boolean;
+  ready?: boolean;
   onSend: (text: string, mode: "ask" | "teachback") => void;
   onAction: (action: ChipAction) => void;
   onInterrupt: () => void;
@@ -40,13 +42,18 @@ export function CommandBox({
   const prompt = textMode ? promptFor(session, activeMode) : undefined;
   const showBar = !disabled && chips.length > 0;
   const showForm = textMode && !disabled;
+  const blocked = disabled || !ready;
 
   return (
     <div className="command-box">
       {disabled && (
         <div className="work-row" role="status">
           <span className="spinner" aria-hidden="true" />
-          <span>{session?.workingOn || "Working…"}</span>
+          <span>
+            {session?.generatingOutline?.length
+              ? "Working"
+              : session?.workingOn || "Working…"}
+          </span>
           <button type="button" className="secondary" onClick={onInterrupt}>
             Interrupt
           </button>
@@ -60,7 +67,7 @@ export function CommandBox({
                 key={chip.action}
                 type="button"
                 className={chip.primary ? undefined : "secondary"}
-                disabled={disabled}
+                disabled={blocked}
                 onClick={() => onAction(chip.action)}
               >
                 {chip.label}
@@ -114,13 +121,13 @@ export function CommandBox({
               aria-label={prompt ? undefined : "Message"}
               rows={3}
               value={text}
-              disabled={disabled}
+              disabled={blocked}
               placeholder="TeX welcome: $P \\subsetneq EXP$ or $$...$$"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (canSend && !disabled) {
+                  if (canSend && !blocked) {
                     onSend(text, activeMode);
                     setText("");
                   }
@@ -130,7 +137,7 @@ export function CommandBox({
             <div className="row">
               <button
                 type="button"
-                disabled={disabled || !canSend}
+                disabled={blocked || !canSend}
                 onClick={() => {
                   onSend(text, activeMode);
                   setText("");
@@ -139,7 +146,7 @@ export function CommandBox({
                 Send
               </button>
               <SymbolPicker
-                disabled={disabled}
+                disabled={blocked}
                 onPick={(tex) => {
                   const el = field.current;
                   const start = el?.selectionStart ?? text.length;
@@ -177,7 +184,7 @@ function modesFor(
   if (session?.phase === "quiz_item") {
     return [{ id: "ask", label: "Ask" }];
   }
-  if (session?.kind === "concept") {
+  if (session?.kind === "concept" || session?.kind === "find") {
     return [{ id: "ask", label: "Ask" }];
   }
   const summary = session?.phase === "awaiting_summary";
@@ -195,7 +202,8 @@ function canSubmitText(phase: Phase | undefined): boolean {
     phase === "quiz_item" ||
     phase === "quest" ||
     phase === "quest_gate" ||
-    phase === "concept"
+    phase === "concept" ||
+    phase === "find"
   );
 }
 
@@ -242,6 +250,7 @@ function chipsFor(
       ];
     case "quiz_item":
       return session.quizMode === "after_debrief" ||
+        session.quizMode === "course_end" ||
         session.quizMode === "quest" ||
         session.quizMode === "concept"
         ? []
@@ -254,13 +263,15 @@ function chipsFor(
     case "quiz_wrap":
       return session.kind === "quest" || session.kind === "concept"
         ? [{ action: "finish", label: "Finish", primary: true }]
-        : session.quizMode === "after_debrief"
+        : session.quizMode === "after_debrief" || session.quizMode === "course_end"
         ? [{ action: "finish", label: "Finish", primary: true }]
         : [
             { action: "finish", label: "Finish", primary: true },
             { action: "quit", label: "Quit" },
           ];
     case "concept":
+      return [];
+    case "find":
       return [];
     case "quest":
       return [];
@@ -292,6 +303,10 @@ export function questHeaderActions(
   if (session.kind === "concept") {
     if (session.phase !== "concept" || !session.offersConceptQuiz) return [];
     return [{ action: "conceptQuiz", label: "Quiz", primary: true }];
+  }
+  if (session.kind === "find") {
+    if (session.phase === "done") return [];
+    return [{ action: "quit", label: "Quit" }];
   }
   if (session.kind !== "quest") return [];
   if (session.phase === "done") return [];

@@ -11,6 +11,22 @@ export function slugConceptId(title: string): string {
   return slug || "side-quest";
 }
 
+/** Exact name or slug hit in the library — no model. */
+export function matchExistingConcept(
+  concepts: Record<string, ConceptDef>,
+  title: string,
+): { id: string; name: string } | undefined {
+  const trimmed = title.trim();
+  if (!trimmed) return undefined;
+  const slug = slugConceptId(trimmed);
+  if (concepts[slug]) return { id: slug, name: concepts[slug].name };
+  const lower = trimmed.toLowerCase();
+  for (const [id, def] of Object.entries(concepts)) {
+    if (def.name.toLowerCase() === lower) return { id, name: def.name };
+  }
+  return undefined;
+}
+
 export function conceptIdForQuest(
   quest: Pick<SideQuest, "id" | "title" | "conceptId">,
   taken: Set<string>,

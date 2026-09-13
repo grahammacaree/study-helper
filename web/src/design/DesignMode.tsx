@@ -14,6 +14,7 @@ const noop: StudyActions = {
   onNewQuest: () => undefined,
   onInitCourse: () => undefined,
   onPickQuiz: () => undefined,
+  onPickCourse: () => undefined,
   onConcept: () => undefined,
 };
 

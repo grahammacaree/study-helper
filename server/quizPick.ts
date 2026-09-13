@@ -6,10 +6,45 @@ export const MAX_QUIZ = 5;
 export const DEBRIEF_LOCAL = 3;
 export const DEBRIEF_DECAY = 2;
 export const DEBRIEF_QUIZ_P = 0.2;
-
+/** How much coldness can boost a review pick, relative to structural importance. */
+export const REVIEW_COLD_WEIGHT = 2;
 
 export function shouldOfferDebriefQuiz(rng: () => number = Math.random): boolean {
   return rng() < DEBRIEF_QUIZ_P;
+}
+
+/** How much a concept does in this course: lecture tags, children, seeAlso. */
+export function importanceForCourse(
+  catalog: Catalog,
+  courseId: string,
+  courseHits: string[],
+): Record<string, number> {
+  const hit = new Set(courseHits);
+  const out: Record<string, number> = {};
+  for (const id of hit) {
+    let tags = 0;
+    for (const lec of catalog.lectures[courseId] ?? []) {
+      if (lec.conceptIds.includes(id)) tags += 1;
+    }
+    let children = 0;
+    let links = 0;
+    for (const other of hit) {
+      if (catalog.concepts[other]?.parentId === id) children += 1;
+      if (catalog.concepts[id]?.seeAlso?.includes(other)) links += 1;
+      if (catalog.concepts[other]?.seeAlso?.includes(id)) links += 1;
+    }
+    out[id] = tags * 3 + children * 2 + links;
+  }
+  return out;
+}
+
+export function reviewScore(
+  id: string,
+  freshness: Record<string, number>,
+  importance: Record<string, number>,
+): number {
+  const cold = 1 - (freshness[id] ?? 0);
+  return (importance[id] ?? 0) + cold * REVIEW_COLD_WEIGHT;
 }
 
 /** Concepts that appear on a complete lecture — not ancestor-only unlocks. */
@@ -85,12 +120,13 @@ export function pickDebriefMix(opts: {
 export function pickCourseReview(
   courseHits: string[],
   freshness: Record<string, number>,
+  importance: Record<string, number> = {},
 ): string[] {
   const unique = [...new Set(courseHits)];
   unique.sort((a, b) => {
-    const fa = freshness[a] ?? 0;
-    const fb = freshness[b] ?? 0;
-    if (fa !== fb) return fa - fb;
+    const sa = reviewScore(a, freshness, importance);
+    const sb = reviewScore(b, freshness, importance);
+    if (sa !== sb) return sb - sa;
     return a.localeCompare(b);
   });
   return unique.slice(0, MAX_QUIZ);

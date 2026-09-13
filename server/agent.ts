@@ -1,9 +1,11 @@
 import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
+import { asOutline } from "./conceptOutline.js";
 import { cursorApiKey, cursorModel, projectRoot } from "./env.js";
 import { clip } from "./learner.js";
 import type {
   DebriefCard,
   KnowledgeEntry,
+  OfferedCourse,
   OfferedQuest,
   QuizItem,
   TeachbackResult,
@@ -384,6 +386,173 @@ export async function answerAsk(opts: {
   return holder.value;
 }
 
+export async function judgeQuestTopic(opts: {
+  agent: LocalAgent;
+  title: string;
+  concepts: Record<string, { name: string }>;
+}): Promise<{ ok: true; name: string; existingId?: string } | { ok: false; reason: string }> {
+  const holder: {
+    value?: { ok: true; name: string; existingId?: string } | { ok: false; reason: string };
+  } = {};
+  const known = Object.entries(opts.concepts)
+    .map(([id, def]) => `- \`${id}\`: ${def.name}`)
+    .join("\n");
+  const run = await opts.agent.send(
+    [
+      "Graham wants a side quest. Call publish_quest_topic once. Stop after that.",
+      "Accept only a conceptual topic that could live in a CS/math study library: a definition, structure, technique, theorem, or similar idea.",
+      "Reject people, sports, news, companies, places, biographies, and trivia that is not a study concept.",
+      "If the title is already a listed concept (same idea, even if the wording differs), ok true and existingId set to that id.",
+      "If it is a new but real concept, ok true and name as a short Title Case label.",
+      "If you reject, ok false and reason: one short sentence, no lecture.",
+      `Title: ${clip(opts.title, 200)}`,
+      `Known concepts:\n${known}`,
+    ].join("\n\n"),
+    {
+      local: {
+        customTools: {
+          publish_quest_topic: {
+            description: "Accept or reject the side-quest topic. Call once.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                ok: { type: "boolean" },
+                name: { type: "string" },
+                existingId: { type: "string" },
+                reason: { type: "string" },
+              },
+              required: ["ok"],
+            },
+            execute: (args) => {
+              const ok = Boolean(args.ok);
+              if (!ok) {
+                const reason =
+                  String(args.reason ?? "").trim() ||
+                  "That's not a concept for the library.";
+                holder.value = { ok: false, reason: reason.slice(0, 200) };
+                return "Rejected. Stop.";
+              }
+              const existingId = String(args.existingId ?? "").trim();
+              const name =
+                String(args.name ?? "").trim() ||
+                (existingId && opts.concepts[existingId]
+                  ? opts.concepts[existingId].name
+                  : opts.title.trim());
+              holder.value = {
+                ok: true,
+                name,
+                ...(existingId && opts.concepts[existingId]
+                  ? { existingId }
+                  : {}),
+              };
+              return "Topic recorded. Stop.";
+            },
+          },
+        },
+      },
+    },
+  );
+  const result = await waitRun(run);
+  if (!holder.value) throw new Error(missingTool("publish_quest_topic", result));
+  return holder.value;
+}
+
+export interface CourseScout {
+  reply: string;
+  offers: OfferedCourse[];
+  pickUrl?: string;
+}
+
+export async function scoutCourse(opts: {
+  agent: LocalAgent;
+  topic: string;
+  already: { id: string; title: string; sourceUrl: string }[];
+  message?: string;
+}): Promise<CourseScout> {
+  const holder: { value?: CourseScout } = {};
+  const have = opts.already
+    .map((c) => `- ${c.title} (\`${c.id}\`) ${c.sourceUrl}`)
+    .join("\n");
+  const run = await opts.agent.send(
+    [
+      "Graham wants a new course to study. Call publish_course_scout once. Stop after that.",
+      "This is a conversation about which freely available video lecture series to add. Not a debrief, not a side quest.",
+      "Good fits: MIT OCW, Yale Open Courses, Harvard Stat 110, Caltech Learning from Data, and similar public video series with a lecture listing page.",
+      "Prefer a public listing (calendar, lecture list, YouTube course page) over a paywalled LMS. Skip Coursera/edX unless lectures are free to watch without login.",
+      "Do not suggest a course already listed below.",
+      "offers: 1–3 candidates with http(s) listing URLs and a short why. Empty if you are only asking a clarifying question.",
+      "pickUrl: only when Graham has clearly chosen one, or the topic is already a specific series (a URL, Stat 110, Learning from Data, Yale ECON 159, a named OCW course). Do not pick on a vague topic like game theory.",
+      `Topic: ${clip(opts.topic, 200)}`,
+      have ? `Already in his catalog:\n${have}` : "Catalog: empty.",
+      opts.message ? `Graham:\n${clip(opts.message, CLIP.ask)}` : "First turn: propose options, then wait.",
+    ].join("\n\n"),
+    {
+      local: {
+        customTools: {
+          publish_course_scout: {
+            description: "Propose or confirm a public lecture series. Call once.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                reply: { type: "string" },
+                pickUrl: { type: "string" },
+                offers: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      url: { type: "string" },
+                      why: { type: "string" },
+                    },
+                    required: ["title", "url", "why"],
+                  },
+                },
+              },
+              required: ["reply"],
+            },
+            execute: (args) => {
+              holder.value = asCourseScout(args);
+              return "Scout recorded. Stop.";
+            },
+          },
+        },
+      },
+    },
+  );
+  const result = await waitRun(run);
+  if (!holder.value) throw new Error(missingTool("publish_course_scout", result));
+  return holder.value;
+}
+
+function asCourseScout(args: Record<string, unknown>): CourseScout {
+  const reply = String(args.reply ?? "").trim() || "Which series do you want?";
+  const offers: OfferedCourse[] = [];
+  const raw = args.offers;
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const title = String(row.title ?? "").trim();
+      const url = String(row.url ?? "").trim();
+      const why = String(row.why ?? "").trim();
+      if (!title || !/^https?:\/\//i.test(url) || !why) continue;
+      offers.push({
+        title: title.slice(0, 120),
+        url,
+        why: why.slice(0, 280),
+      });
+      if (offers.length >= 3) break;
+    }
+  }
+  const pickUrl = String(args.pickUrl ?? "").trim();
+  return {
+    reply: reply.slice(0, 8_000),
+    offers,
+    ...(pickUrl && /^https?:\/\//i.test(pickUrl) ? { pickUrl } : {}),
+  };
+}
+
 export interface QuestPlan {
   explanation: string;
   links: { label: string; url: string }[];
@@ -462,6 +631,7 @@ export async function draftConceptTeaching(opts: {
   parentName?: string;
   related?: { id: string; name: string }[];
   sources?: { id: string; title: string; instructors: string; sourceUrl: string }[];
+  onOutline?: (beats: string[]) => void;
 }): Promise<{
   explanation: string;
   links: { label: string; url: string }[];
@@ -496,7 +666,8 @@ export async function draftConceptTeaching(opts: {
   const run = await opts.agent.send(
     [
       contextBlock({ primed: opts.primed, ctx: opts.ctx }),
-      "Write a permanent teaching note for one concept in his library. Call publish_concept_teaching once. Graham will reread this file instead of asking you to explain it again.",
+      "Write a permanent teaching note for one concept in his library. Graham will reread this file instead of asking you to explain it again.",
+      "Call publish_concept_outline first with 4–6 short spoken asides for what you're about to write — casual status ticks, not section headings. A few words each, no numbering. Start each beat with a capital, then ordinary sentence case. Then call publish_concept_teaching once with prose that follows those beats.",
       "This is not a side quest. Do not write 'side quest', 'in this side quest', or treat the topic as a detour.",
       "Write for him, not for yourself. What the idea is, when he should reach for it, and one mix-up worth watching — in the note, not as a heading about inverted definitions. Do not write '(fix once, then move on)' or similar asides.",
       "Do not start with a title — the pane already names the concept. Do not dump copyrighted notes.",
@@ -511,6 +682,25 @@ export async function draftConceptTeaching(opts: {
     {
       local: {
         customTools: {
+          publish_concept_outline: {
+            description:
+              "Publish casual status ticks for the teaching note. Call once, before publish_concept_teaching.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                beats: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: ["beats"],
+            },
+            execute: (args) => {
+              const beats = asOutline(args.beats);
+              if (beats.length) opts.onOutline?.(beats);
+              return "Outline recorded. Write the teaching next.";
+            },
+          },
           publish_concept_teaching: {
             description: "Publish the stored teaching. Call once.",
             inputSchema: {

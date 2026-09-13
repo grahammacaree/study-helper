@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import katex from "katex";
 
-export function Prose({
+export const Prose = memo(function Prose({
   text,
   onConcept,
 }: {
@@ -74,7 +74,7 @@ export function Prose({
     }
   }
   return <>{nodes}</>;
-}
+}, (prev, next) => prev.text === next.text);
 
 function tidy(text: string): string {
   return text.trim().replace(/\*{3,}/g, "**");

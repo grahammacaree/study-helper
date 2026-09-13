@@ -1,3 +1,5 @@
+export const PENDING_SESSION_ID = "pending";
+
 const SESSION_KEY = "study-helper.session-id";
 const COURSE_KEY = "study-helper.course-id";
 
