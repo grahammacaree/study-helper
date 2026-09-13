@@ -354,8 +354,8 @@ export function CourseNav({
               <input
                 id="add-item-field"
                 value={questTitle}
-                placeholder="Taylor series"
-                aria-label="Quest title"
+                placeholder="Concept"
+                aria-label="Quest concept"
                 disabled={busy}
                 onChange={(e) => setQuestTitle(e.target.value)}
               />
@@ -363,8 +363,8 @@ export function CourseNav({
               <input
                 id="add-item-field"
                 value={url}
-                placeholder="Game theory"
-                aria-label="Course topic or URL"
+                placeholder="Subject"
+                aria-label="Course subject or URL"
                 disabled={initBusy || busy}
                 onChange={(e) => setUrl(e.target.value)}
               />

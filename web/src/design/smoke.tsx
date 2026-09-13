@@ -84,8 +84,8 @@ for (const s of SCENARIOS) {
   if (html.includes("OCW course URL")) {
     fail(s.id, "course add should not assume OCW");
   }
-  if (!html.includes("Game theory")) {
-    fail(s.id, "course add needs a topic placeholder");
+  if (!html.includes('placeholder="Subject"')) {
+    fail(s.id, "course add needs a subject placeholder");
   }
 
   if (!s.session) {
