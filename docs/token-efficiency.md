@@ -35,7 +35,7 @@ Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tag
 - A knowledge.md rewrite — the host already applied `knowledgeUpdates`
 - Symbol-picker order — local, from titles/ids already on the session plus picks this session, not notes and not a model turn
 
-The concept library is built from lecture titles on disk. Mapping already-debriefed lectures does not take a model turn.
+The concept library is built from tags on **content** lectures on disk (recap / quiz-review / course-synthesis slots do not count). Mapping already-debriefed lectures does not take a model turn.
 
 ## Background rewrite
 

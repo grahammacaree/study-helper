@@ -24,7 +24,7 @@ The model is allowed to **check**, **quiz**, and **crystallise**. It is not allo
 
 You watch. You write a summary. **Then** debrief. The composer will not draft the lecture for you. That delay is the generation effect: producing the idea, not recognising a paragraph about it.
 
-A side quest is a concept, or it is refused. A person, a news story, trivia — it does not enter the library by chatting it into existence.
+A side quest is a concept, or it is refused. A person, a news story, trivia — it does not enter the library by chatting it into existence. A recap lecture (quiz review, course synthesis, “the course so far”) is not a node either: you meet a **definition, structure, technique, or theorem**, not the calendar slot.
 
 Concept **Quiz** hides the teaching. Opening Hashing is still Hashing (that is what a library is for). The check is a different verb: retrieve, then the notes come back.
 

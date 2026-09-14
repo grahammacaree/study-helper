@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadCatalog, relatedConcepts } from "../server/catalog.js";
+import { isReviewLectureTitle, isStudyConcept } from "../server/conceptShape.js";
 import { coursesForConcept, lecturesForConcept } from "../server/library.js";
 
 const catalog = await loadCatalog();
@@ -11,8 +12,26 @@ function fail(why: string): void {
   console.log(`FAIL ${why}`);
 }
 
+if (!isReviewLectureTitle("13 Quiz 1 review")) {
+  fail("quiz review is a recap lecture");
+}
+if (!isReviewLectureTitle("Final course review")) {
+  fail("final course review is a recap lecture");
+}
+if (isReviewLectureTitle("Hashing")) fail("Hashing is not a recap lecture");
+if (isStudyConcept("Algorithms course synthesis", "algorithms-course-synthesis")) {
+  fail("course synthesis is not a study concept");
+}
+if (!isStudyConcept("Hashing", "hashing")) fail("Hashing is a study concept");
+if (!isStudyConcept("Algorithms", "algorithms")) {
+  fail("a domain root is still a library ancestor");
+}
+
 const conceptIds = new Set(Object.keys(catalog.concepts));
 for (const [id, def] of Object.entries(catalog.concepts)) {
+  if (!isStudyConcept(def.name, id)) {
+    fail(`${id} (${def.name}) is a recap, not a study concept`);
+  }
   if (def.parentId) {
     if (!conceptIds.has(def.parentId)) fail(`parent ${def.parentId} of ${id} is unknown`);
     if (def.parentId === id) fail(`${id} is its own parent`);

@@ -24,6 +24,7 @@ import {
   relatedConcepts,
   type Catalog,
 } from "./catalog.js";
+import { isReviewLectureTitle, isStudyConcept } from "./conceptShape.js";
 import { seedConceptOutline } from "./conceptOutline.js";
 import {
   initCourseFromUrl,
@@ -56,7 +57,7 @@ import {
   normalizeLectureStatus,
 } from "./lectureProgress.js";
 import { lecturesForConcept, coursesForConcept, unlockedConceptIds } from "./library.js";
-import { conceptsFromDoneQuests, matchExistingConcept } from "./questConcept.js";
+import { conceptsFromDoneQuests, matchExistingConcept, slugConceptId } from "./questConcept.js";
 import {
   hitConceptIds,
   pickCourseReview,
@@ -255,7 +256,15 @@ async function resolveNewQuestTitle(
   { kind: "concept"; conceptId: string } | { kind: "quest"; title: string }
 > {
   const hit = matchExistingConcept(concepts, title);
-  if (hit) return { kind: "concept", conceptId: hit.id };
+  if (hit) {
+    if (!isStudyConcept(hit.name, hit.id)) {
+      throw new Error("That's a recap, not a concept for the library.");
+    }
+    return { kind: "concept", conceptId: hit.id };
+  }
+  if (!isStudyConcept(title, slugConceptId(title))) {
+    throw new Error("That's a recap, not a concept for the library.");
+  }
   const questAgent = await createStudyAgent();
   try {
     const verdict = await judgeQuestTopic({
@@ -1537,7 +1546,12 @@ async function finishDebrief(
     "complete",
   );
   const lecture = lectureOf(catalog, s.courseId, s.lectureN as number);
-  rememberTouch(learner, catalog, lecture.conceptIds, {
+  const touchIds = isReviewLectureTitle(lecture.title)
+    ? []
+    : lecture.conceptIds.filter((id) =>
+        isStudyConcept(catalog.concepts[id]?.name ?? id, id),
+      );
+  rememberTouch(learner, catalog, touchIds, {
     courseId: s.courseId,
     lectureN: s.lectureN,
   });

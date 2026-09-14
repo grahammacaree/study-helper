@@ -1,4 +1,5 @@
 import type { Catalog } from "./catalog.js";
+import { isReviewLectureTitle, isStudyConcept } from "./conceptShape.js";
 import { lectureIsComplete } from "./lectureProgress.js";
 import type { LectureStatus } from "./types.js";
 
@@ -62,8 +63,10 @@ export function hitConceptIds(
     for (const lec of catalog.lectures[course.id] ?? []) {
       const status = progress[course.id]?.[String(lec.n)];
       if (!lectureIsComplete(status)) continue;
+      if (isReviewLectureTitle(lec.title)) continue;
       for (const id of lec.conceptIds) {
         if (!catalog.concepts[id] || seen.has(id)) continue;
+        if (!isStudyConcept(catalog.concepts[id].name, id)) continue;
         seen.add(id);
         out.push(id);
       }

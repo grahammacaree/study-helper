@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isReviewLectureTitle, isStudyConcept } from "../conceptShape";
 import {
   ancestorIds,
   libraryForest,
@@ -452,13 +453,16 @@ export function CourseMap({
               const state = complete ? "complete" : open ? "open" : "locked";
               const tagged = lec.conceptIds
                 .map((id) =>
-                  concepts[id] ? { id, name: concepts[id].name } : null,
+                  concepts[id] && isStudyConcept(concepts[id].name, id)
+                    ? { id, name: concepts[id].name }
+                    : null,
                 )
                 .filter((row): row is { id: string; name: string } =>
                   Boolean(row),
                 );
               const solo =
                 complete &&
+                !isReviewLectureTitle(lec.title) &&
                 tagged.length === 1 &&
                 namesAlign(lec.title, tagged[0].name)
                   ? tagged[0]

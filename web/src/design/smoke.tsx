@@ -152,6 +152,9 @@ for (const s of SCENARIOS) {
       if (!/concept-node[^>]*>Universal hashing</.test(html)) {
         fail(s.id, "finished quest should appear on the concept map");
       }
+      if (/concept-node[^>]*>Algorithms course synthesis</.test(html)) {
+        fail(s.id, "a recap lecture should not unlock a library node");
+      }
     } else {
       if (html.includes(">Review<")) {
         fail(s.id, "in-progress course should not offer Review");

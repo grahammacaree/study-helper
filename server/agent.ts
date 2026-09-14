@@ -402,6 +402,7 @@ export async function judgeQuestTopic(opts: {
     [
       "Graham wants a side quest. Call publish_quest_topic once. Stop after that.",
       "Accept only a conceptual topic that could live in a CS/math study library: a definition, structure, technique, theorem, or similar idea.",
+      "Reject recap / quiz-review / course-synthesis titles — those are lectures, not library nodes.",
       "Reject people, sports, news, companies, places, biographies, and trivia that is not a study concept.",
       "If the title is already a listed concept (same idea, even if the wording differs), ok true and existingId set to that id.",
       "If it is a new but real concept, ok true and name as a short Title Case label.",

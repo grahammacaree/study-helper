@@ -1,4 +1,5 @@
 import type { Catalog } from "./catalog.js";
+import { isReviewLectureTitle, isStudyConcept } from "./conceptShape.js";
 import { lectureIsComplete } from "./lectureProgress.js";
 import type { LectureStatus } from "./types.js";
 
@@ -12,7 +13,11 @@ export function unlockedConceptIds(
     for (const lec of catalog.lectures[course.id] ?? []) {
       const status = progress[course.id]?.[String(lec.n)];
       if (!lectureIsComplete(status)) continue;
-      for (const id of lec.conceptIds) linked.add(id);
+      if (isReviewLectureTitle(lec.title)) continue;
+      for (const id of lec.conceptIds) {
+        if (!isStudyConcept(catalog.concepts[id]?.name ?? id, id)) continue;
+        linked.add(id);
+      }
     }
   }
   const out = new Set<string>();
@@ -25,7 +30,10 @@ export function unlockedConceptIds(
       cur = catalog.concepts[cur].parentId;
     }
   }
-  for (const id of extraIds) out.add(id);
+  for (const id of extraIds) {
+    if (!isStudyConcept(catalog.concepts[id]?.name ?? id, id)) continue;
+    out.add(id);
+  }
   return out;
 }
 
@@ -40,6 +48,7 @@ export function lecturesForConcept(
     for (const lec of catalog.lectures[course.id] ?? []) {
       const status = progress[course.id]?.[String(lec.n)];
       if (!lectureIsComplete(status) && !course.complete) continue;
+      if (isReviewLectureTitle(lec.title)) continue;
       const row = { courseTitle: course.title, n: lec.n, title: lec.title };
       if (lec.conceptIds.includes(conceptId)) {
         direct.push(row);

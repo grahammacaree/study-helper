@@ -1,4 +1,5 @@
 import type { Catalog } from "./catalog.js";
+import { isStudyConcept } from "./conceptShape.js";
 import type { ConceptDef, SideQuest } from "./types.js";
 
 export function slugConceptId(title: string): string {
@@ -68,6 +69,7 @@ export function conceptsFromDoneQuests(
   for (const quest of quests) {
     if (quest.status !== "done") continue;
     const id = conceptIdForQuest(quest, taken);
+    if (!isStudyConcept(quest.title, id)) continue;
     taken.add(id);
     if (!quest.conceptId) missingIds.push({ quest, id });
     const parentId = parentIdForQuest(quest, catalog);

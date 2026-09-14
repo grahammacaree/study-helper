@@ -58,6 +58,10 @@ export const FIX_CATALOG: CatalogPayload = {
       seeAlso: ["sorting"],
     },
     "linear-sorting": { name: "Linear-time sorting", parentId: "sorting" },
+    "algorithms-course-synthesis": {
+      name: "Algorithms course synthesis",
+      parentId: "algorithms",
+    },
   },
   decay: {
     sorting: { freshness: 0.8, directAt: 1 },
@@ -163,10 +167,19 @@ export const SCENARIOS: {
         {
           ...FIX_CATALOG.courses[0],
           complete: true,
-          lectures: FIX_CATALOG.courses[0].lectures.map((lec) => ({
-            ...lec,
-            status: "complete" as const,
-          })),
+          lectures: [
+            ...FIX_CATALOG.courses[0].lectures.map((lec) => ({
+              ...lec,
+              status: "complete" as const,
+            })),
+            {
+              n: 13,
+              title: "Quiz 1 review",
+              url: inspect.lecture!.url,
+              conceptIds: ["hashing", "algorithms-course-synthesis"],
+              status: "complete" as const,
+            },
+          ],
         },
       ],
     },

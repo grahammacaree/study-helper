@@ -70,7 +70,7 @@ On a finished course (every lecture complete), **Review** is an optional retake 
 
 ### Concept library
 
-A node appears if a **complete** lecture tags it, plus ancestors so the tree can stand, plus concepts from **done** side quests. Incomplete lectures stay hidden. Fresh concepts get a slight emphasis; opening a concept does not count as restudy. **Ask** or starting a concept **Quiz** does.
+A node appears if a **complete** lecture tags it, plus ancestors so the tree can stand, plus concepts from **done** side quests. Incomplete lectures stay hidden. Recap lectures (quiz review, course synthesis) do not unlock a node. Fresh concepts get a slight emphasis; opening a concept does not count as restudy. **Ask** or starting a concept **Quiz** does.
 
 Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Host-owned “see also” links jump to other concepts.
 

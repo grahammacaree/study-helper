@@ -1,3 +1,4 @@
+import { isReviewLectureTitle, isStudyConcept } from "./conceptShape";
 import type {
   CatalogCourse,
   ConceptDef,
@@ -21,7 +22,11 @@ export function unlockedConceptIds(
   for (const course of courses) {
     for (const lec of course.lectures) {
       if (!UNLOCK_STATUS.includes(lec.status)) continue;
-      for (const id of lec.conceptIds) linked.add(id);
+      if (isReviewLectureTitle(lec.title)) continue;
+      for (const id of lec.conceptIds) {
+        if (!isStudyConcept(concepts[id]?.name ?? id, id)) continue;
+        linked.add(id);
+      }
     }
   }
   const out = new Set<string>();
@@ -34,7 +39,10 @@ export function unlockedConceptIds(
       cur = concepts[cur].parentId;
     }
   }
-  for (const id of extraIds) out.add(id);
+  for (const id of extraIds) {
+    if (!isStudyConcept(concepts[id]?.name ?? id, id)) continue;
+    out.add(id);
+  }
   return out;
 }
 
