@@ -4,6 +4,8 @@ A local companion for self-directed maths. Not an exam coach, not homework polic
 
 It is personal software on your machine. The public GitHub copy is the app, not your curriculum or notes.
 
+![Study helper: a concept page in the centre, courses on the left, concept library on the right](docs/ui.jpg)
+
 **Why it exists** — friction, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
 
 Sibling of the [code-review walkthrough](https://github.com/grahammacaree/code-review-helper): Vite + Express + `@cursor/sdk`, host-owned sessions, one Cursor agent per session, file memory.
