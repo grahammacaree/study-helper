@@ -1,6 +1,6 @@
 # Token efficiency
 
-How to keep a critic cheap enough to run **every lecture**. What the app is *for* — friction, restatements that earn library nodes, choosing a public series — is [why.md](why.md).
+How to keep a critic cheap enough to run **every lecture**. What the app is *for* — friction, how a concept grows, restatements that earn library nodes, choosing a public series — is [why.md](why.md).
 
 A study session is a handful of prompts on **one agent and one conversation**. The next session must **not** replay this chat: it reads `data/learner/` files. That is the main saving, not a smaller model.
 
@@ -10,7 +10,7 @@ Figures below are **measured** from assembled prompt strings (`npm run check:mea
 
 Standing context (profile excerpt, course blurb, concept tags, knowledge *slice*) is sent once per session. Later turns get a one-line reminder. After `REPRIME_AFTER_CARDS` (6) the slice is sent again so it does not drift out of weight.
 
-The host, not the model, picks the quiz queue (`server/quizPick.ts`): after a debrief, three lecture-related ids and two cold hits; after the last lecture, five from that course weighted by structural importance plus coldness; on a finished course retake, the same five-from-course pick. Items are conceptual (no calculations). The whole set is written in **one** `publish_quiz_set` call. Grading a choice is local — no model turn. A new side quest from the nav is **one** `publish_quest_topic` (reject people and trivia; skip the call if the title already matches a library concept), then **one** `publish_quest_plan` if it is a new concept. A new course from a topic is **one** `publish_course_scout` per chat turn (skip the model if the field is already a listing URL or a catalog title); picking a series is a host fetch, not another prompt. Opening a concept with no file yet uses **one** `publish_concept_teaching` (and a small `publish_concept_outline` in that same turn). The host seeds the outline immediately so the pane can cycle beats without a second request; the file is then reread.
+The host, not the model, picks the quiz queue (`server/quizPick.ts`): after a debrief, three lecture-related ids and two cold hits; after the last lecture, five from that course weighted by structural importance plus coldness; on a finished course retake, the same five-from-course pick. Items are conceptual (no calculations). The whole set is written in **one** `publish_quiz_set` call. Grading a choice is local — no model turn. A new side quest from the nav is **one** `publish_quest_topic` (reject people and trivia; skip the call if the title already matches a library concept), then **one** `publish_quest_plan` if it is a new concept. A new course from a topic is **one** `publish_course_scout` per chat turn (skip the model if the field is already a listing URL or a catalog title); picking a series is a host fetch, not another prompt. Opening a concept with no file yet uses **one** `publish_concept_teaching` (and a small `publish_concept_outline` in that same turn). The host seeds the outline immediately so the pane can cycle beats without a second request; the file is then reread. A later lecture tagged to the same concept does **not** start another teaching prompt: `publish_debrief` may include `vocab` / `theorems` / `example` from the summary, and the host folds those into host-owned sections on the existing file. Theorem `proof` is optional; the host infers asserted vs proved and can attach a later proof to the same claim on another knowledge row without a second model turn.
 
 `tools: ["mcp"]` only (so custom tools work). No read/grep/shell. The host already passed the slice; the model must not walk the repo.
 
@@ -18,9 +18,9 @@ The host, not the model, picks the quiz queue (`server/quizPick.ts`): after a de
 
 Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tags, an empty knowledge slice, current debrief instructions, and an 800-character dummy summary (`npm run check:measure`):
 
-- Standing context: **1,351 characters (~340 tokens, inferred at 4 chars/token)** — measured
-- Full first debrief: **2,899 characters (~725 tokens, inferred)** — measured with that dummy summary
-- Follow-up reminder: **83 characters** — measured. A second turn omits the standing block (**1,351 characters saved**, measured).
+- Standing context: **1,403 characters (~351 tokens, inferred at 4 chars/token)** — measured
+- Full first debrief: **3,215 characters (~804 tokens, inferred)** — measured with that dummy summary
+- Follow-up reminder: **83 characters** — measured. A second turn omits the standing block (**1,403 characters saved**, measured).
 
 ## What we do not send
 
@@ -29,10 +29,10 @@ Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tag
 - Concept ids outside this lecture plus quiz-queue ids and one hop of `seeAlso`
 - Full `knowledge.md` when a slice will do
 - Full concept teaching files except the clipped slice for ids in play
-- Invented examples (examples only if the written summary has one)
+- Invented examples, and cartoon diagrams used only to name vocabulary (an example must carry a method or theorem from the written summary)
 - Decay echo history (`data/learner/decay.json` is host-only)
 - The lecture summary on the background profile rewrite (structured evidence only)
-- A knowledge.md rewrite — the host already applied `knowledgeUpdates`
+- A knowledge.md rewrite — the host already applied `knowledgeUpdates` (and folded vocab / theorems / examples into teaching files when those fields are present)
 - Symbol-picker order — local, from titles/ids already on the session plus picks this session, not notes and not a model turn
 
 The concept library is built from tags on **content** lectures on disk (recap / quiz-review / course-synthesis slots do not count). Mapping already-debriefed lectures does not take a model turn.

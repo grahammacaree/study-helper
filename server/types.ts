@@ -48,12 +48,24 @@ export interface ConceptDef {
   seeAlso?: string[];
 }
 
+export type TheoremStatus = "asserted" | "proved";
+
+export interface ConceptTheorem {
+  claim: string;
+  status: TheoremStatus;
+  proof?: string;
+}
+
 export interface KnowledgeEntry {
   id: string;
   status: KnowledgeStatus;
   note: string;
-  /** From a pasted debrief summary only. Never invented. */
+  /** Working example from a summary. Never invented. */
   example?: string;
+  /** Terms from a vocabulary-pass summary. Never invented. */
+  vocab?: string[];
+  /** Claims from a summary. Proved if he later wrote a sketch, even on another course. */
+  theorems?: ConceptTheorem[];
 }
 
 export interface DecayEcho {

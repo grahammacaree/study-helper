@@ -132,6 +132,9 @@ export function ChatColumn({
         idle={!session}
         generatingOutline={outline}
         generatingBeat={beat}
+        resetScrollKey={
+          session?.kind === "concept" ? session.conceptId : undefined
+        }
         quiz={session?.phase === "quiz_item" ? session.quiz : undefined}
         offeredCourses={
           session?.kind === "find" && session.phase === "find"

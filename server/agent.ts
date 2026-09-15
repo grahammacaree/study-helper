@@ -1,8 +1,14 @@
 import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
 import { asOutline } from "./conceptOutline.js";
 import { cursorApiKey, cursorModel, projectRoot } from "./env.js";
-import { clip } from "./learner.js";
+import {
+  clip,
+  formatVocabPair,
+  parseTheoremBullet,
+  parseVocabPair,
+} from "./learner.js";
 import type {
+  ConceptTheorem,
   DebriefCard,
   KnowledgeEntry,
   OfferedCourse,
@@ -137,7 +143,9 @@ export const DEBRIEF_INSTRUCTIONS = [
   "summaryNote: 2–4 sentences, encouraging, structural.",
   "offeredQuests: only if his summary explicitly asks to chase a side topic (title + why). Empty otherwise. Do not upsell detours.",
   "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Wrong important idea → shaky.",
-  "example: only if the pasted summary itself contains a concrete example for that concept. Quote or paraphrase that. Never invent.",
+  "vocab: 0–8 {term, gloss} pairs from THIS summary. gloss is a one-line definition in his words (or a close paraphrase of what he wrote). Skip a word he named but did not characterize. Empty if this was not a vocabulary pass. Do not invent a glossary.",
+  "theorems: 0–4 {claim, proof} from THIS summary, preferred over extra examples when both exist. claim is the actual statement (existence, uniqueness, detailed balance ⇒ stationary, …). proof is only a sketch he wrote — empty if he only named the result (host stores that as asserted; a later summary that proves the same claim, even on another course, upgrades it). Skip ‘there is a theorem’ with no statement. Never invent a proof. Do not send a status field.",
+  "example: at most one per concept, from THIS summary. Keep it only if it carries a method or theorem (a computation, a reusable model, a special case that proves a claim). Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
 ].join("\n\n");
 
 export async function runDebrief(opts: {
@@ -178,19 +186,41 @@ export async function runDebrief(opts: {
                     required: ["title", "why"],
                   },
                 },
-                knowledgeUpdates: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      id: { type: "string" },
-                      status: { type: "string" },
-                      note: { type: "string" },
-                      example: { type: "string" },
+                    knowledgeUpdates: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          status: { type: "string" },
+                          note: { type: "string" },
+                          example: { type: "string" },
+                          vocab: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                term: { type: "string" },
+                                gloss: { type: "string" },
+                              },
+                              required: ["term", "gloss"],
+                            },
+                          },
+                          theorems: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                claim: { type: "string" },
+                                proof: { type: "string" },
+                              },
+                              required: ["claim"],
+                            },
+                          },
+                        },
+                        required: ["id", "status", "note"],
+                      },
                     },
-                    required: ["id", "status", "note"],
-                  },
-                },
               },
               required: ["corrections", "gaps", "summaryNote", "knowledgeUpdates"],
             },
@@ -633,6 +663,7 @@ export async function draftConceptTeaching(opts: {
   parentName?: string;
   related?: { id: string; name: string }[];
   sources?: { id: string; title: string; instructors: string; sourceUrl: string }[];
+  lectures?: { courseTitle: string; n: number; title: string }[];
   onOutline?: (beats: string[]) => void;
 }): Promise<{
   explanation: string;
@@ -665,17 +696,28 @@ export async function draftConceptTeaching(opts: {
           .join("\n"),
       ].join("\n")
     : "Graham has not tagged this concept to a lecture. Do not name a course.";
+  const lectures = opts.lectures ?? [];
+  const lectureBlock = lectures.length
+    ? [
+        "He has debriefed these tagged lectures. One note for the idea, not a recap of each hour. Later lectures may add vocabulary, a theorem, or a working example — fold those in.",
+        lectures
+          .map((lec) => `- ${lec.courseTitle} L${lec.n}: ${lec.title}`)
+          .join("\n"),
+      ].join("\n")
+    : "";
   const run = await opts.agent.send(
     [
       contextBlock({ primed: opts.primed, ctx: opts.ctx }),
       "Write a permanent teaching note for one concept in his library. Graham will reread this file instead of asking you to explain it again.",
-      "Call publish_concept_outline first with 4–6 short spoken asides for what you're about to write — casual status ticks, not section headings. A few words each, no numbering. Start each beat with a capital, then ordinary sentence case. Then call publish_concept_teaching once with prose that follows those beats.",
+      "Call publish_concept_outline first with 4–6 short spoken asides for what you're about to write — casual status ticks, not the headings you will use in the note. A few words each, no numbering. Vary them with the idea; do not reuse the same three ticks every concept. Start each beat with a capital, then ordinary sentence case. Then call publish_concept_teaching once with prose that follows those beats.",
       "This is not a side quest. Do not write 'side quest', 'in this side quest', or treat the topic as a detour.",
-      "Write for him, not for yourself. What the idea is, when he should reach for it, and one mix-up worth watching — in the note, not as a heading about inverted definitions. Do not write '(fix once, then move on)' or similar asides.",
+      "Write for him, not for yourself. Cover what the idea is, when he should reach for it, and one mix-up that actually bites — but invent headings that belong to this concept. Do not recycle a house template (Mix-up worth watching, When you'd actually use this, When to reach for it). Do not write a heading about inverted definitions. Do not write '(fix once, then move on)' or similar asides.",
       "Do not start with a title — the pane already names the concept. Do not dump copyrighted notes.",
+      "Do not write Vocabulary, Theorems, or Examples sections — the host appends those from his summaries.",
       "links: 0–3 http(s) pages that actually help. Empty is fine. Do not use http for in-app concept jumps. Do not link a course that is not in the sources list.",
       opts.parentName ? `Sits under: ${opts.parentName}` : "",
       sourceBlock,
+      lectureBlock,
       relatedBlock,
       `Concept \`${opts.id}\`: ${opts.name}`,
     ]
@@ -910,6 +952,47 @@ function asLinks(value: unknown): { label: string; url: string }[] {
     .slice(0, 3);
 }
 
+function asVocab(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const rows: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      const pair = parseVocabPair(item);
+      if (pair) rows.push(formatVocabPair(pair.term, pair.gloss));
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const o = item as { term?: unknown; gloss?: unknown };
+    const term = String(o.term ?? "").trim();
+    const gloss = String(o.gloss ?? "").trim();
+    if (!term || !gloss) continue;
+    rows.push(formatVocabPair(term, gloss));
+  }
+  return rows.slice(0, 8);
+}
+
+function asTheorems(value: unknown): ConceptTheorem[] {
+  if (!Array.isArray(value)) return [];
+  const rows: ConceptTheorem[] = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      const parsed = parseTheoremBullet(item);
+      if (parsed) rows.push(parsed);
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const o = item as { claim?: unknown; proof?: unknown };
+    const claim = String(o.claim ?? "").trim();
+    const proof = String(o.proof ?? "").trim();
+    if (!claim) continue;
+    const parsed = parseTheoremBullet(
+      proof ? `${claim} Proof: ${proof}` : claim,
+    );
+    if (parsed) rows.push(parsed);
+  }
+  return rows.slice(0, 4);
+}
+
 function asQuests(value: unknown): OfferedQuest[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -935,17 +1018,23 @@ function asUpdates(value: unknown): KnowledgeEntry[] {
         status?: unknown;
         note?: unknown;
         example?: unknown;
+        vocab?: unknown;
+        theorems?: unknown;
       };
       const id = String(o.id ?? "").trim();
       const status = String(o.status ?? "");
       if (!id) return undefined;
       const st = status === "known" ? "known" : "shaky";
       const example = String(o.example ?? "").trim();
+      const vocab = asVocab(o.vocab);
+      const theorems = asTheorems(o.theorems);
       return {
         id,
         status: st,
         note: String(o.note ?? "").trim(),
         ...(example ? { example } : {}),
+        ...(vocab.length ? { vocab } : {}),
+        ...(theorems.length ? { theorems } : {}),
       };
     })
     .filter((e): e is KnowledgeEntry => Boolean(e));

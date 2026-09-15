@@ -87,8 +87,14 @@ export function CommandBox({
     ? mode
     : (availableModes[0]?.id ?? "ask");
   const prompt = textMode ? promptFor(session, activeMode) : undefined;
-  const showBar = !disabled && chips.length > 0;
   const showForm = textMode && !disabled;
+  const quitChip = showForm
+    ? chips.find((chip) => chip.action === "quit")
+    : undefined;
+  const barChips = quitChip
+    ? chips.filter((chip) => chip.action !== "quit")
+    : chips;
+  const showBar = !disabled && barChips.length > 0;
   const blocked = disabled || !ready;
 
   function onResizePointer(e: ReactPointerEvent<HTMLButtonElement>) {
@@ -144,7 +150,7 @@ export function CommandBox({
       {!disabled && showBar && (
         <div className="command-bar">
           <div className="chips" role="group" aria-label="Study actions">
-            {chips.map((chip) => (
+            {barChips.map((chip) => (
               <button
                 key={chip.action}
                 type="button"
@@ -266,6 +272,16 @@ export function CommandBox({
                 </a>
                 .
               </span>
+              {quitChip ? (
+                <button
+                  type="button"
+                  className="secondary compose-quit"
+                  disabled={blocked}
+                  onClick={() => onAction(quitChip.action)}
+                >
+                  {quitChip.label}
+                </button>
+              ) : null}
             </div>
           </div>
         </>

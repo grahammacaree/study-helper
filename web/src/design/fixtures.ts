@@ -493,7 +493,10 @@ export const SCENARIOS: {
       offersConceptQuiz: true,
       busy: true,
       workingOn: "Generating text…",
-      generatingOutline: seedConceptOutline("Hashing", "Algorithms"),
+      generatingOutline: [
+        "The decision tree picture for why $\\Omega(n \\log n)$ sticks.",
+        ...seedConceptOutline("Hashing", "Algorithms"),
+      ],
       messages: [
         {
           id: "m1",

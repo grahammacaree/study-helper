@@ -378,6 +378,10 @@ a {
   color: var(--ink);
 }
 
+.gen-beat p {
+  margin: 0;
+}
+
 .gen-beat-text {
   display: inline-block;
   animation: gen-beat-in 0.35s ease;
@@ -553,6 +557,10 @@ a {
 
 .row {
   margin-top: 0.5rem;
+}
+
+.compose-quit {
+  margin-left: auto;
 }
 
 .symbol-picker {

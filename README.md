@@ -6,7 +6,7 @@ It is personal software on your machine. The public GitHub copy is the app, not 
 
 ![Study helper: a concept page in the centre, courses on the left, concept library on the right](docs/ui.jpg)
 
-**Why it exists** — friction, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
+**Why it exists** — friction, how a concept grows, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
 
 Sibling of the [code-review walkthrough](https://github.com/grahammacaree/code-review-helper): Vite + Express + `@cursor/sdk`, host-owned sessions, one Cursor agent per session, file memory.
 
@@ -72,7 +72,7 @@ On a finished course (every lecture complete), **Review** is an optional retake 
 
 A node appears if a **complete** lecture tags it, plus ancestors so the tree can stand, plus concepts from **done** side quests. Incomplete lectures stay hidden. Recap lectures (quiz review, course synthesis) do not unlock a node. Fresh concepts get a slight emphasis; opening a concept does not count as restudy. **Ask** or starting a concept **Quiz** does.
 
-Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Host-owned “see also” links jump to other concepts.
+Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Later lectures tagged to the same idea can fold **Vocabulary**, **Theorems**, and **Examples** from your summary (host-owned sections; no extra model call). How those passes work — gloss required, asserted vs proved, cartoons stay out — is in [docs/why.md](docs/why.md#how-a-concept-grows). Host-owned “see also” links jump to other concepts.
 
 ### Side quests
 
@@ -90,8 +90,8 @@ Long-term memory is files, not chat history. A new session starts a **new** Curs
 | `courses/index.json` | Course list: `currently` / `previously` / `later`, `latest`, `complete` |
 | `.env` | `CURSOR_API_KEY` (and optional model, port, site root) |
 | `data/learner/profile.md` | How you study (craft). Agent-maintained after a debrief. |
-| `data/learner/knowledge.md` | Known / shaky / unseen by concept id |
-| `data/learner/concepts/<id>.md` | Stored teaching (written once; no regenerate) |
+| `data/learner/knowledge.md` | Known / shaky / unseen by concept id, plus vocab / theorems / example folded from summaries |
+| `data/learner/concepts/<id>.md` | Stored teaching (written on first open). Later lectures may add vocab, theorems, examples — see [how a concept grows](docs/why.md#how-a-concept-grows) |
 | `data/learner/concepts/<id>.quiz.json` | Stored concept quiz, if you have taken one |
 | `data/learner/progress.json` | Per lecture: incomplete / complete |
 | `data/learner/lectures/<course>/<n>.md` | Your summary + correction log |
@@ -128,7 +128,7 @@ Delete `data/`, `courses/`, and `.env` for a clean slate.
 | `web/` | Three-pane UI |
 | `web/src/design/` | Design-mode fixtures + headless check |
 | `checks/` | Catalog / quiz / decay / quests / token-size scripts |
-| `docs/why.md` | Motivation, friction, earning the library, picking a course |
+| `docs/why.md` | Motivation, friction, earning the library, how a concept grows, picking a course |
 | `docs/token-efficiency.md` | What each prompt sends |
 | `templates.md` | Sketch of debrief/quiz shapes; live instructions live in `server/agent.ts` |
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Prose } from "../prose";
 
 const BEAT_MS = 1100;
 
@@ -32,10 +33,10 @@ export function useCyclingBeat(
 
 export function GeneratingOutline({ current }: { current: string }) {
   return (
-    <p className="gen-beat" aria-label="Writing the teaching note" aria-live="off">
-      <span key={current} className="gen-beat-text">
-        {current}
-      </span>
-    </p>
+    <div className="gen-beat" aria-label="Writing the teaching note" aria-live="off">
+      <div key={current} className="gen-beat-text">
+        <Prose text={current} />
+      </div>
+    </div>
   );
 }

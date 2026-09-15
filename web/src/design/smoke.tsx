@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { StudyView, type StudyActions } from "../components/StudyView";
 import { insertTex, rankSymbols } from "../components/SymbolPicker";
 import { seedConceptOutline } from "../conceptOutline";
+import { GeneratingOutline } from "../components/GeneratingOutline";
 import { AUTH_MISSING, AUTH_OK, FIX_CATALOG, SCENARIOS } from "./fixtures";
 import { Prose } from "../prose";
 
@@ -255,9 +256,14 @@ for (const s of SCENARIOS) {
 
   if (s.id === "concept-gen") {
     if (!html.includes(">Hashing<")) fail(s.id, "generating pane should take the new title");
-    const firstBeat = seedConceptOutline("Hashing", "Algorithms")[0];
-    if (!html.includes(firstBeat)) {
+    if (!html.includes("decision tree")) {
       fail(s.id, "generating pane should show one outline beat");
+    }
+    if (!html.includes("katex")) {
+      fail(s.id, "generating beats should render TeX");
+    }
+    if (html.includes("$\\Omega")) {
+      fail(s.id, "generating beats should not leak raw TeX");
     }
     if (html.includes("When you'd actually use this")) {
       fail(s.id, "generating pane should cycle a single line, not list every beat");
@@ -328,6 +334,19 @@ for (const s of SCENARIOS) {
     fail(s.id, "Working belongs in the composer row, not the header");
   }
 
+  if (s.id === "debrief-wait") {
+    const quit = html.indexOf(">Quit<");
+    const send = html.indexOf(">Send<");
+    const summary = html.indexOf(">Summary<");
+    if (quit < 0) fail(s.id, "summary composer should offer Quit");
+    if (send < 0 || quit < send) {
+      fail(s.id, "Quit should sit on the composer send row");
+    }
+    if (summary >= 0 && quit < summary) {
+      fail(s.id, "Quit should sit under the Summary/Ask tabs");
+    }
+  }
+
   if (s.session.phase === "done" && !html.includes("New session")) {
     fail(s.id, "done state missing New session");
   }
@@ -380,6 +399,10 @@ const bare = proseHtml("T=Z^{2} on top");
 if (!bare.includes("katex")) fail("prose", "bare Z^{2} should render as TeX");
 const split = proseHtml("$a =\nb$");
 if (!split.includes("katex")) fail("prose", "math split across lines should still render");
+const genTex = renderToString(
+  <GeneratingOutline current={"why $\\Omega(n \\log n)$ sticks"} />,
+);
+if (!genTex.includes("katex")) fail("prose", "generating beats should render TeX");
 report("prose", "inline", "Bold keeps math; stray ** dropped");
 
 if (failures) {

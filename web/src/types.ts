@@ -29,11 +29,21 @@ export interface ConceptDef {
 
 export type KnowledgeStatus = "known" | "shaky" | "unseen";
 
+export type TheoremStatus = "asserted" | "proved";
+
+export interface ConceptTheorem {
+  claim: string;
+  status: TheoremStatus;
+  proof?: string;
+}
+
 export interface KnowledgeEntry {
   id: string;
   status: KnowledgeStatus;
   note: string;
   example?: string;
+  vocab?: string[];
+  theorems?: ConceptTheorem[];
 }
 
 export interface OfferedQuest {

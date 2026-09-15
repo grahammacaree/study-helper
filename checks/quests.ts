@@ -129,8 +129,24 @@ if (!questCanMarkDone({ questTeachbackOk: true, questQuizOk: true })) {
   fail("both checks should mark done");
 }
 
-if (formatConceptTeaching("Universal hashing", "A family of hash functions.") !== "# Universal hashing\n\nA family of hash functions.") {
-  fail("teaching file should keep the title");
+if (
+  formatConceptTeaching(
+    "Universal hashing",
+    "# Universal hashing\n\nA family of hash functions.",
+  ) !== "A family of hash functions."
+) {
+  fail("teaching should drop a heading that repeats the pane title");
+}
+if (
+  formatConceptTeaching(
+    "Hoeffding's inequality",
+    "## Hoeffding’s inequality\n\nA tail bound.",
+  ) !== "A tail bound."
+) {
+  fail("teaching should drop a curly-apostrophe title heading");
+}
+if (formatConceptTeaching("Hashing", "A hash family.") !== "A hash family.") {
+  fail("teaching without a title heading should stay the body");
 }
 if (!isSafeConceptFileId("universal-hashing")) fail("slug should be a safe file id");
 if (isSafeConceptFileId("../etc/passwd")) fail("path-like ids must be rejected");

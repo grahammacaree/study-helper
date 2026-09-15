@@ -4,7 +4,7 @@ Self-directed maths with a critic, not a tutor that does the work. You watch a p
 
 The public GitHub tree is the machine. Curriculum and notes stay on this computer.
 
-[How to run it](../README.md). [How little each prompt sends](token-efficiency.md).
+[How to run it](../README.md). [How a concept grows](#how-a-concept-grows). [How little each prompt sends](token-efficiency.md).
 
 ## Motivation
 
@@ -40,13 +40,29 @@ A library node is not a gift from the model. You **meet** an idea in a lecture o
 | Teach a side quest back, then finish its conceptual quiz | Mandatory Feynman-ish restatement, then a short closed check | **Done** enables. Quest notes on disk can become a library concept |
 | Open a concept and take **Quiz** | Recognition without the sheet | Restudy. The node was already yours |
 
-The teaching file you see on open is a **crystallisation** written once (host-owned, not regenerated). It is not a substitute for the summary you wrote, and it is not a dump of the lecture. You earned the *node* by debriefing or finishing a quest. The prose is a stable page to Ask against, not the proof that you understand it.
+You earned the *node* by debriefing or finishing a quest. The teaching page is a stable thing to Ask against, not the proof that you understand it.
 
-Examples on a knowledge row exist only if your written summary had one. The model must not invent a cute story so the file looks full.
+### How a concept grows
+
+One concept id is one node, even when several courses tag it. `markov-chains` from Stat 110 and from another series is the same library page, not a child per lecture.
+
+1. **Meet it.** A content lecture you complete names it, or a done side quest becomes it. Recap / quiz-review / “the course so far” slots do not unlock anything.
+2. **Unlock.** It appears in the tree (plus ancestors so the tree can stand). Opening it is consultation, not restudy.
+3. **Crystallise.** The first open writes `data/learner/concepts/<id>.md` in one model turn. Later visits reread that file. The body is not rewritten as a whole; reopening must not resurrect a stale example or theorem from the knowledge index.
+4. **Enrich from later summaries.** The same `publish_debrief` call may carry `vocab`, `theorems`, and `example` taken from *this* write-up. The host folds those into host-owned sections on the existing page — no second teaching prompt, and nothing the model invented.
+
+| Pass | Lands only if | What the host stores |
+| --- | --- | --- |
+| Vocabulary | You characterised the term, not merely named it | `**term**: gloss` in your words. A bare word is dropped. |
+| Theorems | You stated the claim | **Asserted** if there is no proof sketch. **Proved** if you wrote one. A later summary that proves the same claim — another lecture, another course, even another concept row that already held that asserted claim — upgrades it. A later naming without a sketch does not downgrade a proof. |
+| Examples | The case does work: a computation, a reusable model, or a special case that proves a claim | At most one working example per pass. Lecturer cartoons that only name vocabulary stay out (they belong in a gloss if anywhere). A real theorem outranks an extra example. |
+
+`knowledge.md` is the index (known / shaky, note, those passes). The teaching file is the page you read. Both stay on this computer.
 
 ### What the model must not do
 
 - Write the library from a topic you have not studied
+- Invent a glossary, a proof, or a cute example so the teaching file looks full
 - Upsell side quests you did not ask for
 - Grade an exam or nag about skipped psets
 - Choose the quiz queue (the host does, from tags, structure, and decay)

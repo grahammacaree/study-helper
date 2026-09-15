@@ -13,6 +13,7 @@ export function Transcript({
   generatingOutline,
   generatingBeat,
   offeredCourses,
+  resetScrollKey,
 }: {
   messages: ChatMessage[];
   quiz?: QuizItem;
@@ -23,6 +24,7 @@ export function Transcript({
   generatingOutline?: string[];
   generatingBeat?: string;
   offeredCourses?: OfferedCourse[];
+  resetScrollKey?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const last = messages[messages.length - 1];
@@ -42,6 +44,12 @@ export function Transcript({
     }
     el.scrollTop = el.scrollHeight;
   }, [pin, pinRole]);
+
+  useEffect(() => {
+    if (!resetScrollKey) return;
+    const el = host.current;
+    if (el) el.scrollTop = 0;
+  }, [resetScrollKey]);
 
   return (
     <div ref={host} className="transcript" role="log" aria-live="polite">

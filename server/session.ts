@@ -34,6 +34,7 @@ import {
 import {
   addQuest,
   formatConceptTeaching,
+  stripLeadingTitle,
   knowledgeSlice,
   loadLearner,
   readConceptTeachings,
@@ -45,6 +46,8 @@ import {
   teachingSlice,
   teachingsForIds,
   upsertKnowledge,
+  applyKnowledgePasses,
+  spreadTheoremProofs,
   writeConceptTeaching,
   writeLectureSummary,
   readConceptQuiz,
@@ -71,6 +74,7 @@ import type {
   CatalogPayload,
   ChatMessage,
   InspectPayload,
+  KnowledgeEntry,
   LectureStatus,
   OfferedCourse,
   OfferedQuest,
@@ -140,6 +144,10 @@ export async function catalogPayload(): Promise<CatalogPayload> {
     await saveLearner(learner);
   }
   const conceptTeachings = await readConceptTeachings();
+  for (const [id, text] of Object.entries(conceptTeachings)) {
+    const name = quested.concepts[id]?.name;
+    if (name) conceptTeachings[id] = stripLeadingTitle(text, name);
+  }
   for (const quest of learner.sideQuests) {
     if (quest.status !== "done" || !quest.conceptId || !quest.notes.trim()) continue;
     if (conceptTeachings[quest.conceptId]) continue;
@@ -1083,7 +1091,8 @@ async function openConcept(s: Session): Promise<void> {
   const sources = coursesForConcept(catalog, id);
   const allowedCourses = new Set(sources.map((c) => c.id));
   const stored = (await teachingsForIds([id]))[id];
-  let body = stored?.trim() ?? "";
+  const lectures = lecturesForConcept(catalog, hinted.progress, id);
+  let body = stripLeadingTitle(stored?.trim() ?? "", def.name);
   if (!body) {
     const ctx = await contextOf(s);
     const plan = await withAgent(s, (agent) =>
@@ -1098,6 +1107,7 @@ async function openConcept(s: Session): Promise<void> {
           : undefined,
         related,
         sources,
+        lectures,
         onOutline: (beats) => {
           s.generatingOutline = beats;
         },
@@ -1126,16 +1136,22 @@ async function openConcept(s: Session): Promise<void> {
   } else {
     body = teachingWithSeeAlso(body, related);
   }
-  const cleaned = dropForeignCourseLinks(
-    tidyTeachingVoice(body),
-    catalog,
-    allowedCourses,
+  const kn = learner.knowledge.find((row) => row.id === id);
+  body = applyKnowledgePasses(body, kn, {
+    skipFresh: Boolean(stored?.trim()),
+  });
+  const cleaned = stripLeadingTitle(
+    dropForeignCourseLinks(
+      tidyTeachingVoice(body),
+      catalog,
+      allowedCourses,
+    ),
+    def.name,
   );
   if (cleaned !== (stored?.trim() ?? "")) {
     await writeConceptTeaching(id, cleaned, def.name);
   }
   body = cleaned;
-  const lectures = lecturesForConcept(catalog, hinted.progress, id);
   s.generatingOutline = undefined;
   s.messages = [];
   push(s, {
@@ -1450,6 +1466,9 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
   s.offeredQuests = card.offeredQuests;
   const learner = await loadLearner();
   learner.knowledge = upsertKnowledge(learner.knowledge, updates);
+  const spread = spreadTheoremProofs(learner.knowledge, updates);
+  learner.knowledge = spread.list;
+  await foldTeachingPasses(learner, updates, spread.changedIds);
   await writeLectureSummary({
     courseId: s.courseId,
     n: s.lectureN as number,
@@ -1596,6 +1615,37 @@ async function finishDebrief(
   s.phase = "done";
   await persist(s);
   await closeAgent(s);
+}
+
+async function foldTeachingPasses(
+  learner: LearnerState,
+  updates: KnowledgeEntry[],
+  extraIds: string[] = [],
+): Promise<void> {
+  const ids = [
+    ...new Set(
+      [
+        ...updates
+          .filter(
+            (u) =>
+              (u.vocab?.length ?? 0) > 0 ||
+              (u.theorems?.length ?? 0) > 0 ||
+              Boolean(u.example?.trim()),
+          )
+          .map((u) => u.id),
+        ...extraIds,
+      ].filter(Boolean),
+    ),
+  ];
+  if (!ids.length) return;
+  const teachings = await teachingsForIds(ids);
+  const byId = new Map(learner.knowledge.map((row) => [row.id, row]));
+  for (const id of ids) {
+    const stored = teachings[id]?.trim();
+    if (!stored) continue;
+    const next = applyKnowledgePasses(stored, byId.get(id));
+    if (next !== stored) await writeConceptTeaching(id, next);
+  }
 }
 
 async function queueRewrite(s: Session, evidence: string): Promise<void> {

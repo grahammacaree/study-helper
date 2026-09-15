@@ -4,12 +4,14 @@ import { randomUUID } from "node:crypto";
 import { projectRoot } from "./env.js";
 import { readAllSessions } from "./store.js";
 import type {
+  ConceptTheorem,
   KnowledgeEntry,
   KnowledgeStatus,
   LectureStatus,
   QuizLogEntry,
   SideQuest,
   QuizItem,
+  TheoremStatus,
 } from "./types.js";
 import type { DecayMap } from "./decay.js";
 
@@ -115,6 +117,13 @@ export function renderKnowledge(entries: KnowledgeEntry[]): string {
     for (const e of groups[status]) {
       parts.push(`- \`${e.id}\` — ${e.note || "(no note)"}`);
       if (e.example) parts.push(`  - example: ${e.example}`);
+      if (e.theorems?.length) {
+        for (const th of e.theorems) {
+          parts.push(`  - theorem: (${th.status}) ${th.claim}`);
+          if (th.proof) parts.push(`    proof: ${th.proof}`);
+        }
+      }
+      if (e.vocab?.length) parts.push(`  - vocab: ${e.vocab.join("; ")}`);
     }
     parts.push("");
   }
@@ -138,6 +147,30 @@ export function parseKnowledge(markdown: string): KnowledgeEntry[] {
     const example = /^\s+-\s+example:\s+(.*)$/.exec(line);
     if (example && entries.length) {
       entries[entries.length - 1].example = example[1].trim();
+      continue;
+    }
+    const theorem = /^\s+-\s+theorem:\s+(?:\((asserted|proved)\)\s+)?(.*)$/i.exec(
+      line,
+    );
+    if (theorem && entries.length) {
+      const cur = entries[entries.length - 1];
+      const parsed = asStoredTheorem(theorem[1], theorem[2]);
+      if (parsed) cur.theorems = [...(cur.theorems ?? []), parsed];
+      continue;
+    }
+    const proofLine = /^\s+proof:\s+(.*)$/.exec(line);
+    if (proofLine && entries.length) {
+      const cur = entries[entries.length - 1];
+      const last = cur.theorems?.at(-1);
+      if (last && !last.proof) {
+        last.proof = proofLine[1].trim();
+        last.status = last.proof ? "proved" : last.status;
+      }
+      continue;
+    }
+    const vocab = /^\s+-\s+vocab:\s+(.*)$/.exec(line);
+    if (vocab && entries.length) {
+      entries[entries.length - 1].vocab = splitVocab(vocab[1]);
     }
   }
   return entries;
@@ -329,11 +362,342 @@ export async function writeLectureSummary(opts: {
   await writeFile(path, clip(body), "utf8");
 }
 
+export function stripLeadingTitle(text: string, title: string): string {
+  const want = foldHeading(title);
+  if (!want) return text.trim();
+  let body = text.trim();
+  while (body) {
+    const atx = /^(#{1,6})\s+(.+?)(?:\n+|$)/.exec(body);
+    if (atx && foldHeading(atx[2]) === want) {
+      body = body.slice(atx[0].length).trim();
+      continue;
+    }
+    const plain = /^(?:\*\*|__)?(.+?)(?:\*\*|__)?(?:\n+|$)/.exec(body);
+    if (plain && foldHeading(plain[1]) === want && !plain[1].includes("\n")) {
+      body = body.slice(plain[0].length).trim();
+      continue;
+    }
+    break;
+  }
+  return body;
+}
+
+function foldHeading(s: string): string {
+  return s
+    .trim()
+    .replace(/[*_`]/g, "")
+    .replace(/['\u2018\u2019\u2032]/g, "'")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 export function formatConceptTeaching(title: string, notes: string): string {
-  const body = notes.trim();
-  if (!body) return "";
-  if (/^#\s/.test(body)) return body;
-  return `# ${title.trim() || "Concept"}\n\n${body}`;
+  return stripLeadingTitle(notes, title);
+}
+
+const VOCAB_HEADING = /^## Vocabulary\s*$/i;
+const THEOREMS_HEADING = /^## Theorems\s*$/i;
+const EXAMPLES_HEADING = /^## Examples\s*$/i;
+
+export function mergeTeachingPasses(
+  text: string,
+  pass: {
+    vocab?: string[];
+    theorems?: Array<string | ConceptTheorem>;
+    examples?: string[];
+  },
+): string {
+  const prior = parseTeachingPasses(text);
+  const vocab = mergeVocab(prior.vocab, pass.vocab ?? []);
+  const theorems = mergeTheorems(prior.theorems, pass.theorems ?? [], true);
+  const examples = mergeTerms(prior.examples, pass.examples ?? []);
+  const stripped = stripTeachingPasses(text);
+  const seeAt = stripped.search(/\n## See also\b/i);
+  const head = (seeAt >= 0 ? stripped.slice(0, seeAt) : stripped).trim();
+  const tail = seeAt >= 0 ? stripped.slice(seeAt).trim() : "";
+  const chunks = [head];
+  if (vocab.length) {
+    chunks.push(`## Vocabulary\n${vocab.map((row) => `- ${row}`).join("\n")}`);
+  }
+  if (theorems.length) {
+    chunks.push(
+      `## Theorems\n${theorems.map((row) => `- ${formatTheoremBullet(row)}`).join("\n")}`,
+    );
+  }
+  if (examples.length) {
+    chunks.push(
+      `## Examples\n${examples.map((row) => `- ${row}`).join("\n")}`,
+    );
+  }
+  if (tail) chunks.push(tail);
+  return chunks.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function parseTeachingPasses(text: string): {
+  vocab: string[];
+  theorems: ConceptTheorem[];
+  examples: string[];
+} {
+  const vocab: string[] = [];
+  const theorems: ConceptTheorem[] = [];
+  const examples: string[] = [];
+  let bucket: "vocab" | "theorems" | "examples" | undefined;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (VOCAB_HEADING.test(trimmed)) {
+      bucket = "vocab";
+      continue;
+    }
+    if (THEOREMS_HEADING.test(trimmed)) {
+      bucket = "theorems";
+      continue;
+    }
+    if (EXAMPLES_HEADING.test(trimmed)) {
+      bucket = "examples";
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      bucket = undefined;
+      continue;
+    }
+    const bullet = /^[-*•]\s+(.+)$/.exec(trimmed);
+    if (!bucket || !bullet) continue;
+    const body = bullet[1].trim();
+    if (bucket === "vocab") vocab.push(body);
+    else if (bucket === "examples") examples.push(body);
+    else {
+      const parsed = parseTheoremBullet(body);
+      if (parsed) theorems.push(parsed);
+    }
+  }
+  return { vocab, theorems, examples };
+}
+
+function stripTeachingPasses(text: string): string {
+  return text
+    .replace(/\n*## Vocabulary\s*\n(?:[-*•] .+\n?)*/gi, "\n")
+    .replace(/\n*## Theorems\s*\n(?:[-*•] .+\n?)*/gi, "\n")
+    .replace(/\n*## Examples\s*\n(?:[-*•] .+\n?)*/gi, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function splitVocab(raw: string): string[] {
+  return mergeVocab(
+    [],
+    raw
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+}
+
+export function parseVocabPair(
+  raw: string,
+): { term: string; gloss: string } | undefined {
+  const t = raw
+    .replace(/^[-*•]\s+/, "")
+    .replace(/^\*\*(.+?)\*\*\s*[:—–]\s*/, "$1: ")
+    .trim();
+  const m = /^(.+?)\s*[:—–]\s+(.+)$/.exec(t);
+  if (!m) return undefined;
+  const term = m[1].replace(/\*+/g, "").trim();
+  const gloss = m[2].trim();
+  if (!term || !gloss || term.length > 80) return undefined;
+  return { term, gloss };
+}
+
+export function formatVocabPair(term: string, gloss: string): string {
+  return `**${term.replace(/\*+/g, "").trim()}**: ${gloss.trim()}`.slice(0, 240);
+}
+
+function mergeVocab(prior: string[], next: string[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const row of [...prior, ...next]) {
+    const pair = parseVocabPair(row);
+    if (!pair) continue;
+    byKey.set(pair.term.toLowerCase(), formatVocabPair(pair.term, pair.gloss));
+  }
+  return [...byKey.values()].slice(0, 12);
+}
+
+function mergeTerms(prior: string[], next: string[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const row of [...prior, ...next]) {
+    const term = row.replace(/^[-*•]\s+/, "").trim();
+    if (!term) continue;
+    const key = term
+      .replace(/[*_`]/g, "")
+      .split(/[:—–]/)[0]
+      .trim()
+      .toLowerCase();
+    if (!key) continue;
+    byKey.set(key, term.slice(0, 800));
+  }
+  return [...byKey.values()].slice(0, 12);
+}
+
+function asStoredTheorem(
+  statusRaw: string | undefined,
+  claimRaw: string,
+): ConceptTheorem | undefined {
+  const parsed = normalizeTheorem({ claim: claimRaw });
+  if (!parsed) return undefined;
+  if (statusRaw?.toLowerCase() === "proved" && !parsed.proof) {
+    return { ...parsed, status: "proved" };
+  }
+  return parsed;
+}
+
+export function parseTheoremBullet(raw: string): ConceptTheorem | undefined {
+  const t = raw.replace(/^[-*•]\s+/, "").trim();
+  const marked =
+    /^\*\*(asserted|proved)\.\*\*\s+([\s\S]+)$/i.exec(t) ??
+    /^(asserted|proved)\.\s+([\s\S]+)$/i.exec(t);
+  const body = marked ? marked[2].trim() : t;
+  const parsed = normalizeTheorem({ claim: body });
+  if (!parsed) return undefined;
+  if (marked?.[1].toLowerCase() === "proved" && !parsed.proof) {
+    return { ...parsed, status: "proved" };
+  }
+  return parsed;
+}
+
+function formatTheoremBullet(th: ConceptTheorem): string {
+  const tag = th.status === "proved" ? "Proved" : "Asserted";
+  const proof = th.proof?.trim();
+  return proof
+    ? `**${tag}.** ${th.claim} Proof: ${proof}`.slice(0, 800)
+    : `**${tag}.** ${th.claim}`.slice(0, 800);
+}
+
+function theoremKey(claim: string): string {
+  const stripped = claim
+    .replace(/\*\*(asserted|proved)\.\*\*/gi, "")
+    .replace(/\bproof\s*:.*/i, "")
+    .replace(/\$[^$]*\$/g, " ")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+  return (stripped || claim.trim().toLowerCase()).slice(0, 96);
+}
+
+function normalizeTheorem(
+  input: Partial<ConceptTheorem> & { claim?: string },
+): ConceptTheorem | undefined {
+  let claim = String(input.claim ?? "").trim();
+  if (!claim) return undefined;
+  let proof = input.proof?.trim();
+  const split = /^(.*?)\s+Proof:\s+([\s\S]+)$/.exec(claim);
+  if (split) {
+    claim = split[1].trim();
+    proof = proof || split[2].trim();
+  }
+  if (!claim) return undefined;
+  const status: TheoremStatus = proof ? "proved" : "asserted";
+  return { claim: claim.slice(0, 500), status, ...(proof ? { proof: proof.slice(0, 800) } : {}) };
+}
+
+function mergeTheorems(
+  prior: Array<string | ConceptTheorem>,
+  next: Array<string | ConceptTheorem>,
+  addNew = true,
+): ConceptTheorem[] {
+  const byKey = new Map<string, ConceptTheorem>();
+  for (const row of prior) {
+    const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
+    if (!parsed) continue;
+    byKey.set(theoremKey(parsed.claim), parsed);
+  }
+  for (const row of next) {
+    const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
+    if (!parsed) continue;
+    const key = theoremKey(parsed.claim);
+    const old = byKey.get(key);
+    if (old) byKey.set(key, combineTheorems(old, parsed));
+    else if (addNew) byKey.set(key, parsed);
+  }
+  return [...byKey.values()].slice(0, 12);
+}
+
+function combineTheorems(
+  prior: ConceptTheorem,
+  next: ConceptTheorem,
+): ConceptTheorem {
+  const proof = next.proof?.trim() || prior.proof?.trim();
+  return {
+    claim: prior.claim,
+    status: proof ? "proved" : "asserted",
+    ...(proof ? { proof } : {}),
+  };
+}
+
+export function spreadTheoremProofs(
+  list: KnowledgeEntry[],
+  incoming: KnowledgeEntry[],
+): { list: KnowledgeEntry[]; changedIds: string[] } {
+  const proved = incoming.flatMap((e) =>
+    (e.theorems ?? []).filter((t) => t.proof?.trim()),
+  );
+  if (!proved.length) return { list, changedIds: [] };
+  const incomingIds = new Set(incoming.map((e) => e.id));
+  const changedIds: string[] = [];
+  const next = list.map((e) => {
+    if (!e.theorems?.length) return e;
+    const theorems = mergeTheorems(e.theorems, proved, false);
+    if (sameTheorems(e.theorems, theorems)) return e;
+    if (!incomingIds.has(e.id)) changedIds.push(e.id);
+    return { ...e, theorems };
+  });
+  return { list: next, changedIds };
+}
+
+function sameTheorems(a: ConceptTheorem[], b: ConceptTheorem[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((row, i) => {
+    const other = b[i];
+    return (
+      row.claim === other.claim &&
+      row.status === other.status &&
+      (row.proof ?? "") === (other.proof ?? "")
+    );
+  });
+}
+
+function knowledgePasses(entry: KnowledgeEntry | undefined): {
+  vocab?: string[];
+  theorems?: ConceptTheorem[];
+  examples?: string[];
+} {
+  if (!entry) return {};
+  return {
+    vocab: entry.vocab,
+    theorems: entry.theorems,
+    examples: entry.example ? [entry.example] : [],
+  };
+}
+
+export function applyKnowledgePasses(
+  text: string,
+  entry: KnowledgeEntry | undefined,
+  opts?: { skipFresh?: boolean },
+): string {
+  const pass = knowledgePasses(entry);
+  if (opts?.skipFresh) {
+    pass.examples = undefined;
+    pass.theorems = undefined;
+  }
+  const prior = parseTeachingPasses(text);
+  const danglingVocab = prior.vocab.some((row) => !parseVocabPair(row));
+  if (
+    !pass.vocab?.length &&
+    !pass.theorems?.length &&
+    !pass.examples?.length &&
+    !danglingVocab
+  ) {
+    return text;
+  }
+  return mergeTeachingPasses(text, pass);
 }
 
 export async function writeConceptTeaching(
@@ -463,6 +827,8 @@ export function upsertKnowledge(
       ...prior,
       ...u,
       example: u.example?.trim() || prior?.example,
+      vocab: mergeVocab(prior?.vocab ?? [], u.vocab ?? []),
+      theorems: mergeTheorems(prior?.theorems ?? [], u.theorems ?? [], true),
     });
   }
   return [...map.values()];
@@ -528,9 +894,10 @@ export function knowledgeSlice(
       const e = byId.get(id);
       if (!e) return `- \`${id}\` — unseen`;
       const stub = /^side quest\.?$/i.test(e.note.trim());
-      return stub
+      const base = stub
         ? `- \`${id}\` — ${e.status}`
         : `- \`${id}\` — ${e.status}: ${e.note}`;
+      return e.vocab?.length ? `${base} · ${e.vocab.join("; ")}` : base;
     })
     .join("\n");
 }
