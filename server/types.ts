@@ -51,9 +51,15 @@ export interface ConceptDef {
 export type TheoremStatus = "asserted" | "proved";
 
 export interface ConceptTheorem {
+  /** Display name, e.g. Weak law of large numbers. */
+  title?: string;
   claim: string;
   status: TheoremStatus;
+  /** Named moves he actually wrote — not a full TeX slog. */
   proof?: string;
+  /** TeX + explanation of the mathlib proof, only after a real sketch and a Lean hit. */
+  canonical?: string;
+  lemma?: string;
 }
 
 export interface KnowledgeEntry {

@@ -1,0 +1,15 @@
+---
+description: Grain of the concept library — when to combine vs split nodes
+globs: courses/concepts.json,courses/**/lectures.json,server/conceptShape.ts,docs/why.md
+alwaysApply: false
+---
+
+# Concept library grain
+
+Lecture titles are not concept ids. One calendar slot may tag several nodes.
+
+**Split** independently citable named results, even if they share a lecture: LLN vs CLT, Markov vs Chebyshev, BFS vs DFS, Dijkstra vs Bellman–Ford. A known mix-up is a reason to split (with `seeAlso`), not to mash. Each result can carry its own theorem pass.
+
+**Combine** only faces of one object (PMF and CDF), duals of one operator (Adam/Eve), or a **family bucket** whose children are the named members (`limit-theorems` → `lln`, `clt`).
+
+Do not name a leaf `LLN and CLT`. `fusedCitableResults` in `server/conceptShape.ts` must stay empty for every catalog row.

@@ -2,6 +2,7 @@ import { emptyProfile, knowledgeSlice } from "../server/learner.js";
 import {
   CLIP,
   DEBRIEF_INSTRUCTIONS,
+  STANDARD_PROOF_INSTRUCTIONS,
   assembleStandingContext,
 } from "../server/agent.js";
 import { expandConceptIds, lectureOf, loadCatalog } from "../server/catalog.js";
@@ -65,3 +66,11 @@ console.log(`concept_standing_self_chars ${conceptStandingSelf.length}`);
 console.log(
   `concept_standing_saved_chars ${conceptStandingExpanded.length - conceptStandingSelf.length}`,
 );
+const standardProofPrompt = [
+  STANDARD_PROOF_INSTRUCTIONS,
+  `Claim:\n${"x".repeat(200)}`,
+  `Mathlib \`ProbabilityTheory.strong_law_ae\` informal:\n${"y".repeat(200)}`,
+  `Lean:\n${"z".repeat(CLIP.lean)}`,
+].join("\n\n");
+console.log(`standard_proof_chars ${standardProofPrompt.length}`);
+console.log(`clip_lean ${CLIP.lean}`);

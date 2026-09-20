@@ -26,6 +26,10 @@ import type { SessionKind } from "./types.js";
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+app.get("/", (_req, res) => {
+  res.redirect(302, "http://127.0.0.1:5180/");
+});
+
 function sessionId(req: express.Request): string {
   const id = req.params.id;
   if (typeof id !== "string") throw new Error("Missing session id.");

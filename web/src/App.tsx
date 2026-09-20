@@ -255,7 +255,7 @@ export function App() {
           const hit = catalog
             ? matchExistingCourse(catalog.courses, topic)
             : undefined;
-          if (hit) {
+          if (hit && hit.track !== "later") {
             setError(null);
             rememberCourse(hit.id);
             setCourseId(hit.id);
@@ -265,14 +265,20 @@ export function App() {
             }
             return;
           }
-          if (looksLikeCourseUrl(topic)) {
+          const listing =
+            hit?.track === "later" ? hit.sourceUrl : topic;
+          if (hit?.track === "later" || looksLikeCourseUrl(listing)) {
             setInitBusy(true);
             setError(null);
-            void initCourse(topic)
+            void initCourse(listing)
               .then((result) => {
                 setCatalog(result.catalog);
                 setCourseId(result.course.id);
                 rememberCourse(result.course.id);
+                if (session) {
+                  forgetSession();
+                  setSession(null);
+                }
               })
               .catch((err: unknown) =>
                 setError(err instanceof Error ? err.message : String(err)),

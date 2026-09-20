@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 import type { DecayMap } from "./decay.js";
 
-const MAX_FILE_CHARS = 12_000;
+const MAX_FILE_CHARS = 16_000;
 
 export interface LearnerState {
   profile: string;
@@ -119,8 +119,20 @@ export function renderKnowledge(entries: KnowledgeEntry[]): string {
       if (e.example) parts.push(`  - example: ${e.example}`);
       if (e.theorems?.length) {
         for (const th of e.theorems) {
-          parts.push(`  - theorem: (${th.status}) ${th.claim}`);
+          parts.push(
+            `  - theorem: (${th.status}) ${
+              th.title ? `${th.title}: ${th.claim}` : th.claim
+            }`,
+          );
           if (th.proof) parts.push(`    proof: ${th.proof}`);
+          if (th.lemma) parts.push(`    lemma: ${th.lemma}`);
+          if (th.canonical) {
+            const lines = th.canonical.split("\n");
+            parts.push(`    standard: ${lines[0]}`);
+            for (const extra of lines.slice(1)) {
+              parts.push(`      ${extra}`);
+            }
+          }
         }
       }
       if (e.vocab?.length) parts.push(`  - vocab: ${e.vocab.join("; ")}`);
@@ -163,8 +175,31 @@ export function parseKnowledge(markdown: string): KnowledgeEntry[] {
       const cur = entries[entries.length - 1];
       const last = cur.theorems?.at(-1);
       if (last && !last.proof) {
-        last.proof = proofLine[1].trim();
-        last.status = last.proof ? "proved" : last.status;
+        const sketch = proofLine[1].trim();
+        if (isProofSketch(sketch)) {
+          last.proof = sketch;
+          last.status = "proved";
+        }
+      }
+      continue;
+    }
+    const lemmaLine = /^\s+lemma:\s+(.*)$/.exec(line);
+    if (lemmaLine && entries.length) {
+      const last = entries[entries.length - 1].theorems?.at(-1);
+      if (last) last.lemma = lemmaLine[1].trim();
+      continue;
+    }
+    const standardLine = /^\s+standard:\s+(.*)$/.exec(line);
+    if (standardLine && entries.length) {
+      const last = entries[entries.length - 1].theorems?.at(-1);
+      if (last) last.canonical = standardLine[1];
+      continue;
+    }
+    const standardCont = /^\s{6}(.*)$/.exec(line);
+    if (standardCont && entries.length) {
+      const last = entries[entries.length - 1].theorems?.at(-1);
+      if (last && last.canonical != null) {
+        last.canonical += `\n${standardCont[1]}`;
       }
       continue;
     }
@@ -421,7 +456,7 @@ export function mergeTeachingPasses(
   }
   if (theorems.length) {
     chunks.push(
-      `## Theorems\n${theorems.map((row) => `- ${formatTheoremBullet(row)}`).join("\n")}`,
+      `## Theorems\n${theorems.map((row) => formatTheoremBlock(row)).join("\n\n")}`,
     );
   }
   if (examples.length) {
@@ -442,41 +477,64 @@ export function parseTeachingPasses(text: string): {
   const theorems: ConceptTheorem[] = [];
   const examples: string[] = [];
   let bucket: "vocab" | "theorems" | "examples" | undefined;
+  let theoremBuf: string[] = [];
+  const flushTheorem = (): void => {
+    const block = theoremBuf.join("\n").trim();
+    theoremBuf = [];
+    if (!block) return;
+    const parsed = parseTheoremBlock(block);
+    if (parsed) theorems.push(parsed);
+  };
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (VOCAB_HEADING.test(trimmed)) {
+      flushTheorem();
       bucket = "vocab";
       continue;
     }
     if (THEOREMS_HEADING.test(trimmed)) {
+      flushTheorem();
       bucket = "theorems";
       continue;
     }
     if (EXAMPLES_HEADING.test(trimmed)) {
+      flushTheorem();
       bucket = "examples";
       continue;
     }
     if (/^##\s+/.test(trimmed)) {
+      flushTheorem();
       bucket = undefined;
+      continue;
+    }
+    if (bucket === "theorems") {
+      if (/^###\s+/i.test(trimmed) && !/^#{3,4}\s+Proof\b/i.test(trimmed)) {
+        flushTheorem();
+        theoremBuf = [line];
+        continue;
+      }
+      if (/^\*\*(asserted|proved)\.\*\*/i.test(trimmed) || /^[-*•]\s+/.test(line)) {
+        flushTheorem();
+        theoremBuf = [line];
+      } else if (theoremBuf.length) {
+        theoremBuf.push(line);
+      }
       continue;
     }
     const bullet = /^[-*•]\s+(.+)$/.exec(trimmed);
     if (!bucket || !bullet) continue;
     const body = bullet[1].trim();
     if (bucket === "vocab") vocab.push(body);
-    else if (bucket === "examples") examples.push(body);
-    else {
-      const parsed = parseTheoremBullet(body);
-      if (parsed) theorems.push(parsed);
-    }
+    else examples.push(body);
   }
+  flushTheorem();
   return { vocab, theorems, examples };
 }
 
 function stripTeachingPasses(text: string): string {
   return text
     .replace(/\n*## Vocabulary\s*\n(?:[-*•] .+\n?)*/gi, "\n")
-    .replace(/\n*## Theorems\s*\n(?:[-*•] .+\n?)*/gi, "\n")
+    .replace(/\n*## Theorems\s*\n[\s\S]*?(?=\n## |\s*$)/gi, "\n")
     .replace(/\n*## Examples\s*\n(?:[-*•] .+\n?)*/gi, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -563,40 +621,162 @@ export function parseTheoremBullet(raw: string): ConceptTheorem | undefined {
   return parsed;
 }
 
-function formatTheoremBullet(th: ConceptTheorem): string {
-  const tag = th.status === "proved" ? "Proved" : "Asserted";
-  const proof = th.proof?.trim();
-  return proof
-    ? `**${tag}.** ${th.claim} Proof: ${proof}`.slice(0, 800)
-    : `**${tag}.** ${th.claim}`.slice(0, 800);
+export function parseTheoremBlock(raw: string): ConceptTheorem | undefined {
+  const t = raw.replace(/^[-*•]\s+/, "").trim();
+  if (!t) return undefined;
+  const titled = /^###\s+(.+?)(?:\n+([\s\S]*))?$/.exec(t);
+  if (titled && !/^(asserted|proved)\b/i.test(titled[1])) {
+    const name = titled[1].replace(/^#+\s*/, "").trim();
+    let rest = (titled[2] ?? "").trim();
+    const lem = /From mathlib `([^`]+)`/i.exec(rest);
+    const lemma = lem?.[1]?.trim();
+    const proofAt = /\n#{3,4}\s+Proof\b/i.exec(`\n${rest}`);
+    let canonical: string | undefined;
+    if (proofAt && proofAt.index != null) {
+      const at = proofAt.index > 0 ? proofAt.index - 1 : 0;
+      canonical = rest.slice(at).replace(/^\n#{3,4}\s+Proof\b/i, "").trim();
+      rest = rest.slice(0, at).trim();
+    }
+    rest = rest.replace(/\n*From mathlib `[^`]+`\.?\s*$/i, "").trim();
+    rest = rest.replace(/^\*\*Claim\.\*\*\s*/i, "").trim();
+    return normalizeTheorem({
+      title: name,
+      claim: rest || name,
+      canonical,
+      lemma,
+      status: canonical ? "proved" : "asserted",
+    });
+  }
+  if (!t.includes("\n")) return parseTheoremBullet(t);
+  const tagged =
+    /^\*\*(asserted|proved)\.\*\*\s+([\s\S]+)$/i.exec(t) ??
+    /^(asserted|proved)\.\s+([\s\S]+)$/i.exec(t);
+  const body = tagged ? tagged[2].trim() : t;
+  const stdAt = /\n\*\*Standard proof\*\*[^\n]*\n+/i.exec(body);
+  let main = body;
+  let canonical: string | undefined;
+  let lemma: string | undefined;
+  if (stdAt && stdAt.index != null) {
+    main = body.slice(0, stdAt.index).trim();
+    canonical = body.slice(stdAt.index + stdAt[0].length).trim();
+    const lem =
+      /from mathlib `([^`]+)`/i.exec(body) ??
+      /mathlib `([^`]+)`/i.exec(body);
+    if (lem) lemma = lem[1].trim();
+  }
+  const moveAt = /(?:^|\n)(?:Moves|Proof):\s+/i.exec(main);
+  let claim = main;
+  let proof: string | undefined;
+  if (moveAt && moveAt.index != null) {
+    claim = main.slice(0, moveAt.index).trim();
+    proof = main.slice(moveAt.index + moveAt[0].length).trim();
+  }
+  return normalizeTheorem({ claim, proof, canonical, lemma });
 }
 
-function theoremKey(claim: string): string {
-  const stripped = claim
+function formatTheoremBlock(th: ConceptTheorem): string {
+  const title = th.title?.trim();
+  if (title) {
+    const bits = [`### ${title}`, th.claim.trim()];
+    const writeup = th.canonical?.trim();
+    if (writeup) {
+      bits.push(
+        /^#{3,4}\s+Proof\b/i.test(writeup)
+          ? writeup
+          : `#### Proof\n\n${writeup}`,
+      );
+    }
+    return bits.join("\n\n");
+  }
+  const tag = th.status === "proved" ? "Proved" : "Asserted";
+  const bits = [`**${tag}.** ${th.claim}`];
+  const proof = th.proof?.trim();
+  if (proof) bits.push(`Moves: ${proof}`);
+  const standard = th.canonical?.trim();
+  if (standard) {
+    const lemma = th.lemma?.trim()
+      ? ` from mathlib \`${th.lemma.trim()}\``
+      : "";
+    bits.push(`**Standard proof**${lemma}.`, standard);
+  }
+  return bits.join("\n\n");
+}
+
+export function theoremKey(claim: string, title?: string): string {
+  const source = [title, claim].filter(Boolean).join(" ");
+  const stripped = source
     .replace(/\*\*(asserted|proved)\.\*\*/gi, "")
     .replace(/\bproof\s*:.*/i, "")
+    .replace(/\$\$[\s\S]*?\$\$/g, " ")
     .replace(/\$[^$]*\$/g, " ")
     .replace(/[^a-z0-9]+/gi, " ")
     .trim()
     .toLowerCase();
-  return (stripped || claim.trim().toLowerCase()).slice(0, 96);
+  return (stripped || source.trim().toLowerCase()).slice(0, 96);
 }
 
 function normalizeTheorem(
   input: Partial<ConceptTheorem> & { claim?: string },
 ): ConceptTheorem | undefined {
+  const title = input.title?.trim();
   let claim = String(input.claim ?? "").trim();
   if (!claim) return undefined;
   let proof = input.proof?.trim();
-  const split = /^(.*?)\s+Proof:\s+([\s\S]+)$/.exec(claim);
-  if (split) {
-    claim = split[1].trim();
-    proof = proof || split[2].trim();
+  let canonical = input.canonical?.trim();
+  const lemma = input.lemma?.trim();
+  const splitProof = /^(.*?)\s+Proof:\s+([\s\S]+)$/.exec(claim);
+  if (splitProof) {
+    claim = splitProof[1].trim();
+    proof = proof || splitProof[2].trim();
+  }
+  const splitStd = /^(.*?)\s+Standard:\s+([\s\S]+)$/.exec(proof || claim);
+  if (splitStd && proof) {
+    proof = splitStd[1].trim();
+    canonical = canonical || splitStd[2].replace(/\s*\([^)]+\)\s*$/, "").trim();
+  } else if (!proof) {
+    const fromClaim = /^(.*?)\s+Standard:\s+([\s\S]+)$/.exec(claim);
+    if (fromClaim) {
+      claim = fromClaim[1].trim();
+      canonical = canonical || fromClaim[2].trim();
+    }
   }
   if (!claim) return undefined;
-  const status: TheoremStatus = proof ? "proved" : "asserted";
-  return { claim: claim.slice(0, 500), status, ...(proof ? { proof: proof.slice(0, 800) } : {}) };
+  if (proof && !isProofSketch(proof)) proof = undefined;
+  const writeup = Boolean(canonical?.includes("$$"));
+  const status: TheoremStatus = proof || writeup ? "proved" : "asserted";
+  return {
+    ...(title ? { title: title.slice(0, 120) } : {}),
+    claim: claim.slice(0, 800),
+    status,
+    ...(proof ? { proof: proof.slice(0, 800) } : {}),
+    ...(canonical ? { canonical: canonical.slice(0, 3_500) } : {}),
+    ...(lemma ? { lemma: lemma.slice(0, 160) } : {}),
+  };
 }
+
+const SHRUG_PROOF = new Set([
+  "obvious",
+  "trivial",
+  "uniqueness",
+  "existence",
+  "definition",
+  "by definition",
+  "same",
+  "see above",
+  "easy",
+  "similar",
+  "as usual",
+]);
+
+export function isProofSketch(proof: string): boolean {
+  const t = proof.trim().toLowerCase().replace(/[.!?]+$/g, "").trim();
+  if (!t) return false;
+  if (SHRUG_PROOF.has(t)) return false;
+  return true;
+}
+
+export const SLOPPY_PROOF_CORRECTION =
+  "A proof can be the interesting moves (the lemma, the identity, the reduction) — not a shrug, and not a full TeX slog. Name those parts if you proved it.";
 
 function mergeTheorems(
   prior: Array<string | ConceptTheorem>,
@@ -607,12 +787,12 @@ function mergeTheorems(
   for (const row of prior) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
     if (!parsed) continue;
-    byKey.set(theoremKey(parsed.claim), parsed);
+    byKey.set(theoremKey(parsed.claim, parsed.title), parsed);
   }
   for (const row of next) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
     if (!parsed) continue;
-    const key = theoremKey(parsed.claim);
+    const key = theoremKey(parsed.claim, parsed.title);
     const old = byKey.get(key);
     if (old) byKey.set(key, combineTheorems(old, parsed));
     else if (addNew) byKey.set(key, parsed);
@@ -624,11 +804,27 @@ function combineTheorems(
   prior: ConceptTheorem,
   next: ConceptTheorem,
 ): ConceptTheorem {
-  const proof = next.proof?.trim() || prior.proof?.trim();
+  const nextSketch = next.proof?.trim() && isProofSketch(next.proof) ? next.proof.trim() : undefined;
+  const proof = nextSketch || prior.proof?.trim();
+  const nextStd = next.canonical?.trim();
+  const priorStd = prior.canonical?.trim();
+  const canonical =
+    (nextStd?.includes("$$") ? nextStd : undefined) ||
+    (priorStd?.includes("$$") ? priorStd : undefined) ||
+    nextStd ||
+    priorStd;
+  const lemma = next.lemma?.trim() || prior.lemma?.trim();
+  const title = prior.title?.trim() || next.title?.trim();
   return {
+    ...(title ? { title } : {}),
     claim: prior.claim,
-    status: proof ? "proved" : "asserted",
+    status:
+      proof || prior.status === "proved" || next.status === "proved"
+        ? "proved"
+        : "asserted",
     ...(proof ? { proof } : {}),
+    ...(canonical ? { canonical } : {}),
+    ...(lemma ? { lemma } : {}),
   };
 }
 
@@ -657,9 +853,12 @@ function sameTheorems(a: ConceptTheorem[], b: ConceptTheorem[]): boolean {
   return a.every((row, i) => {
     const other = b[i];
     return (
+      (row.title ?? "") === (other.title ?? "") &&
       row.claim === other.claim &&
       row.status === other.status &&
-      (row.proof ?? "") === (other.proof ?? "")
+      (row.proof ?? "") === (other.proof ?? "") &&
+      (row.canonical ?? "") === (other.canonical ?? "") &&
+      (row.lemma ?? "") === (other.lemma ?? "")
     );
   });
 }

@@ -6,7 +6,7 @@ import {
 import { PENDING_SESSION_ID } from "../sessionStore";
 import type { AuthStatus, ChatMessage, SessionSnapshot } from "../types";
 import { CommandBox, questHeaderActions, type ChipAction } from "./CommandBox";
-import { useCyclingBeat } from "./GeneratingOutline";
+import { DEBRIEF_BEATS, useCyclingBeat } from "./GeneratingOutline";
 import { Transcript } from "./Transcript";
 
 export function ChatColumn({
@@ -79,8 +79,12 @@ export function ChatColumn({
   const outline =
     working && session?.kind === "concept"
       ? session.generatingOutline
-      : undefined;
-  const beat = useCyclingBeat(outline, Boolean(outline?.length));
+      : working && session?.kind === "debrief"
+        ? DEBRIEF_BEATS
+        : undefined;
+  const beatAt = useCyclingBeat(outline, Boolean(outline?.length));
+  const outlineLabel =
+    session?.kind === "debrief" ? "Checking the summary" : "Writing the teaching note";
   const headerActions = questHeaderActions(session);
 
   return (
@@ -131,7 +135,8 @@ export function ChatColumn({
         messages={pinnedMessages}
         idle={!session}
         generatingOutline={outline}
-        generatingBeat={beat}
+        generatingAt={beatAt}
+        generatingLabel={outline?.length ? outlineLabel : undefined}
         resetScrollKey={
           session?.kind === "concept" ? session.conceptId : undefined
         }

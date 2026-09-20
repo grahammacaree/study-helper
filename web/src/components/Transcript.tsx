@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { GeneratingOutline } from "./GeneratingOutline";
 import { Prose } from "../prose";
 import type { ChatMessage, DebriefCard, OfferedCourse, QuizItem } from "../types";
@@ -11,7 +11,8 @@ export function Transcript({
   onConcept,
   idle,
   generatingOutline,
-  generatingBeat,
+  generatingAt,
+  generatingLabel,
   offeredCourses,
   resetScrollKey,
 }: {
@@ -22,7 +23,8 @@ export function Transcript({
   onConcept?: (id: string) => void;
   idle?: boolean;
   generatingOutline?: string[];
-  generatingBeat?: string;
+  generatingAt?: number;
+  generatingLabel?: string;
   offeredCourses?: OfferedCourse[];
   resetScrollKey?: string;
 }) {
@@ -30,29 +32,37 @@ export function Transcript({
   const last = messages[messages.length - 1];
   const pin = last?.id ?? "";
   const pinRole = last?.role;
+  const keepTop =
+    Boolean(resetScrollKey) && !messages.some((msg) => msg.role === "user");
 
-  useEffect(() => {
-    if (!pin) return;
+  useLayoutEffect(() => {
     const el = host.current;
     if (!el) return;
+    if (keepTop) {
+      el.scrollTop = 0;
+      return;
+    }
+    if (!pin) return;
     if (pinRole === "assistant") {
       const bubble = el.querySelector<HTMLElement>(
         `[data-msg="${CSS.escape(pin)}"]`,
       );
-      if (bubble) el.scrollTop = bubble.offsetTop;
+      if (bubble) {
+        el.scrollTop +=
+          bubble.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      }
       return;
     }
     el.scrollTop = el.scrollHeight;
-  }, [pin, pinRole]);
-
-  useEffect(() => {
-    if (!resetScrollKey) return;
-    const el = host.current;
-    if (el) el.scrollTop = 0;
-  }, [resetScrollKey]);
+  }, [pin, pinRole, keepTop, last?.text, generatingOutline?.length]);
 
   return (
-    <div ref={host} className="transcript" role="log" aria-live="polite">
+    <div
+      ref={host}
+      className="transcript"
+      role="log"
+      aria-live={keepTop ? "off" : "polite"}
+    >
       {messages.length === 0 && idle && (
         <article className="bubble assistant" data-kind="status">
           <p>
@@ -63,37 +73,49 @@ export function Transcript({
           </p>
         </article>
       )}
-      {messages.map((msg) => (
-        <article
-          key={msg.id}
-          data-msg={msg.id}
-          className={`bubble ${msg.role}`}
-          data-kind={msg.kind}
-        >
-          {generatingOutline?.length &&
+      {messages.map((msg) => {
+        if (
+          generatingOutline?.length &&
           msg.kind === "status" &&
-          /Generating text/.test(msg.text) ? (
-            <GeneratingOutline
-              current={generatingBeat ?? generatingOutline[0]}
-            />
-          ) : msg.kind === "debrief" && msg.debrief ? (
-            <DebriefBody card={msg.debrief} note={msg.text} />
-          ) : msg.kind === "quiz" && msg.quiz ? (
-            <QuizBody
-              item={msg.quiz}
-              live={Boolean(
-                quiz &&
-                  onPickQuiz &&
-                  quiz.conceptId === msg.quiz.conceptId &&
-                  quiz.index === msg.quiz.index,
-              )}
-              onPick={onPickQuiz}
-            />
-          ) : (
-            <Prose text={msg.text} onConcept={onConcept} />
-          )}
+          /Generating text/.test(msg.text)
+        ) {
+          return null;
+        }
+        return (
+          <article
+            key={msg.id}
+            data-msg={msg.id}
+            className={`bubble ${msg.role}`}
+            data-kind={msg.kind}
+          >
+            {msg.kind === "debrief" && msg.debrief ? (
+              <DebriefBody card={msg.debrief} note={msg.text} />
+            ) : msg.kind === "quiz" && msg.quiz ? (
+              <QuizBody
+                item={msg.quiz}
+                live={Boolean(
+                  quiz &&
+                    onPickQuiz &&
+                    quiz.conceptId === msg.quiz.conceptId &&
+                    quiz.index === msg.quiz.index,
+                )}
+                onPick={onPickQuiz}
+              />
+            ) : (
+              <Prose text={msg.text} onConcept={onConcept} />
+            )}
+          </article>
+        );
+      })}
+      {generatingOutline?.length ? (
+        <article className="bubble assistant" data-kind="status">
+          <GeneratingOutline
+            beats={generatingOutline}
+            index={generatingAt}
+            label={generatingLabel}
+          />
         </article>
-      ))}
+      ) : null}
       {offeredCourses?.length && onPickCourse ? (
         <article className="bubble assistant" data-kind="text">
           <div className="quiz-choices" role="group" aria-label="Course options">

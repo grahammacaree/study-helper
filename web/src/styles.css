@@ -288,8 +288,23 @@ a {
 }
 
 .bubble h2,
+.main-column h2 {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
 .bubble h3,
 .main-column h3 {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.bubble h4,
+.main-column h4 {
   font-family: var(--font-serif);
   font-size: var(--text-base);
   font-weight: 600;
@@ -369,35 +384,37 @@ a {
   gap: 0.6rem;
 }
 
-.gen-beat {
+.gen-stream {
   margin: 0.15rem 0 0.4rem;
   min-height: 1.55em;
   font-family: var(--font-serif);
   font-size: var(--text-base);
   line-height: 1.55;
-  color: var(--ink);
 }
 
-.gen-beat p {
+.gen-stream-row {
+  animation: gen-row-in 0.45s ease;
+}
+
+.gen-stream-row p {
   margin: 0;
 }
 
-.gen-beat-text {
-  display: inline-block;
-  animation: gen-beat-in 0.35s ease;
-}
-
-@keyframes gen-beat-in {
+@keyframes gen-row-in {
   from {
     opacity: 0;
+    transform: translateY(0.45em);
+    color: var(--muted);
   }
   to {
     opacity: 1;
+    transform: none;
+    color: var(--ink);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gen-beat-text {
+  .gen-stream-row {
     animation: none;
   }
 }
@@ -407,6 +424,7 @@ a {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   padding: var(--space-sm) var(--pane-x, var(--space-sm));
   display: flex;
   flex-direction: column;
@@ -439,8 +457,17 @@ a {
 }
 
 .bubble h2,
-.bubble h3 {
+.bubble h3,
+.bubble h4 {
   margin: 0.7rem 0 0.3rem;
+}
+
+.bubble h2 {
+  margin-top: 1.15rem;
+}
+
+.bubble h3 {
+  margin-top: 0.95rem;
 }
 
 .bubble > :first-child {
@@ -954,7 +981,32 @@ button.quiz-choice.picked {
 
 .tex-block {
   margin: 0.6rem 0;
-  overflow-x: auto;
+  max-width: 100%;
+}
+
+.tex-proof {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  max-width: 100%;
+}
+
+.tex-proof .tex-block {
+  margin: 0.15rem 0;
+}
+
+.tex-block .katex-display,
+.tex-block .katex-display.fleqn {
+  display: block;
+  margin: 0.4em 0;
+  padding-left: 0;
+  text-align: left;
+}
+
+.tex-block .katex-display > .katex {
+  display: inline-block;
+  text-align: left;
 }
 
 .tex-inline .katex {
@@ -963,6 +1015,69 @@ button.quiz-choice.picked {
 
 .tex-block .katex {
   font-size: 1.1em;
+}
+
+ol.proof-steps {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+ol.proof-steps > li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.55rem;
+}
+
+.proof-n {
+  flex: 0 0 1.65rem;
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.proof-block {
+  margin: 0.4rem 0 1rem;
+}
+
+.proof-line {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+ol.proof-steps .tex-block {
+  display: inline-block;
+  margin: 0;
+  vertical-align: baseline;
+}
+
+ol.proof-steps .tex-block .katex-display,
+ol.proof-steps .tex-block .katex-display.fleqn {
+  display: inline-block;
+  margin: 0;
+  padding-left: 0;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+ol.proof-steps .tex-block .katex-display > .katex,
+ol.proof-steps .tex-block .katex-display.fleqn > .katex {
+  padding-left: 0;
+  text-align: left;
+}
+
+.proof-tex {
+  display: block;
+  width: 100%;
+}
+
+.proof-crib {
+  margin: 0.15rem 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .design-dock {

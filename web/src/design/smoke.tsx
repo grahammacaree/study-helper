@@ -334,6 +334,15 @@ for (const s of SCENARIOS) {
     fail(s.id, "Working belongs in the composer row, not the header");
   }
 
+  if (s.id === "busy") {
+    if (!html.includes("Reading what you wrote")) {
+      fail(s.id, "debrief processing should show a host tick");
+    }
+    if (html.includes("Watching for inverted implications")) {
+      fail(s.id, "debrief processing should show one tick, not the whole list");
+    }
+  }
+
   if (s.id === "debrief-wait") {
     const quit = html.indexOf(">Quit<");
     const send = html.indexOf(">Send<");
@@ -400,9 +409,54 @@ if (!bare.includes("katex")) fail("prose", "bare Z^{2} should render as TeX");
 const split = proseHtml("$a =\nb$");
 if (!split.includes("katex")) fail("prose", "math split across lines should still render");
 const genTex = renderToString(
-  <GeneratingOutline current={"why $\\Omega(n \\log n)$ sticks"} />,
+  <GeneratingOutline beats={["why $\\Omega(n \\log n)$ sticks"]} />,
 );
 if (!genTex.includes("katex")) fail("prose", "generating beats should render TeX");
+const lemmaHtml = proseHtml(
+  "**Standard proof** from mathlib `ProbabilityTheory.strong_law_ae`.",
+);
+if (lemmaHtml.includes("katex") && lemmaHtml.includes("strong_")) {
+  fail("prose", "lemma underscores in backticks must not become TeX");
+}
+if (!lemmaHtml.includes("ProbabilityTheory.strong_law_ae")) {
+  fail("prose", "lemma name should remain readable");
+}
+const stackedHtml = proseHtml(
+  "$$\n\\begin{gathered}a\\end{gathered}\\begin{gathered}b\\end{gathered}\n$$",
+);
+if ((stackedHtml.match(/tex-block/g) ?? []).length < 2) {
+  fail("prose", "adjacent gathered steps should render as separate displays");
+}
+if (!stackedHtml.includes("fleqn")) {
+  fail("prose", "display proof steps should flush left");
+}
+const rowHtml = proseHtml("$$\\begin{gathered}a\\\\b\\end{gathered}$$");
+if ((rowHtml.match(/tex-block/g) ?? []).length < 2) {
+  fail("prose", "gathered \\\\ rows should render as separate displays");
+}
+const proofHtml = proseHtml(
+  [
+    "1.",
+    "$$",
+    "a=b",
+    "$$",
+    "*by Chebyshev's inequality*",
+    "*by simplification*",
+    "2.",
+    "$$",
+    "b=c",
+    "$$",
+    "∎",
+  ].join("\n"),
+);
+if (!proofHtml.includes("proof-n")) fail("prose", "proof steps should number on the math baseline");
+if ((proofHtml.match(/proof-crib/g) ?? []).length !== 1) {
+  fail("prose", "several tricks on one step should fold into one crib");
+}
+if (!proofHtml.includes("Chebyshev") || !proofHtml.includes("noting")) {
+  fail("prose", "the folded crib should name the inequality and the constants");
+}
+if (!proofHtml.includes("proof-qed")) fail("prose", "a proved write-up should end with a QED mark on the last line");
 report("prose", "inline", "Bold keeps math; stray ** dropped");
 
 if (failures) {

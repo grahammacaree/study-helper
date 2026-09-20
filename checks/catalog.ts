@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadCatalog, relatedConcepts } from "../server/catalog.js";
-import { isReviewLectureTitle, isStudyConcept } from "../server/conceptShape.js";
+import {
+  fusedCitableResults,
+  isReviewLectureTitle,
+  isStudyConcept,
+} from "../server/conceptShape.js";
 import { coursesForConcept, lecturesForConcept } from "../server/library.js";
 
 const catalog = await loadCatalog();
@@ -26,11 +30,28 @@ if (!isStudyConcept("Hashing", "hashing")) fail("Hashing is a study concept");
 if (!isStudyConcept("Algorithms", "algorithms")) {
   fail("a domain root is still a library ancestor");
 }
+if (fusedCitableResults("LLN and CLT").join() !== "lln,clt") {
+  fail("LLN and CLT is two independently citable results");
+}
+if (fusedCitableResults("Limit theorems").length) {
+  fail("a family bucket is not a fused pair");
+}
+if (fusedCitableResults("Adam’s law and Eve’s law").length) {
+  fail("Adam/Eve are duals of one operator, not two citable mashups");
+}
+if (fusedCitableResults("Hashing").length) fail("Hashing is a single idea");
+if (fusedCitableResults("BFS and DFS").join() !== "bfs,dfs") {
+  fail("BFS and DFS should split like named search algorithms");
+}
 
 const conceptIds = new Set(Object.keys(catalog.concepts));
 for (const [id, def] of Object.entries(catalog.concepts)) {
   if (!isStudyConcept(def.name, id)) {
     fail(`${id} (${def.name}) is a recap, not a study concept`);
+  }
+  const fused = fusedCitableResults(def.name, id);
+  if (fused.length) {
+    fail(`${id} mashes ${fused.join(" + ")} into one leaf; split and tag both`);
   }
   if (def.parentId) {
     if (!conceptIds.has(def.parentId)) fail(`parent ${def.parentId} of ${id} is unknown`);
@@ -79,6 +100,19 @@ for (const course of catalog.courses) {
 
 if (catalog.concepts.poisson?.parentId !== "discrete-named") {
   fail("poisson should sit under named discrete distributions");
+}
+if (catalog.concepts["limit-theorems"]?.name === "LLN and CLT") {
+  fail("limit-theorems is the family, not a mashed LLN+CLT leaf");
+}
+if (catalog.concepts.lln?.parentId !== "limit-theorems") {
+  fail("lln should sit under limit theorems");
+}
+if (catalog.concepts.clt?.parentId !== "limit-theorems") {
+  fail("clt should sit under limit theorems");
+}
+const lec29 = (catalog.lectures["stat-110"] ?? []).find((l) => l.n === 29);
+if (!lec29?.conceptIds.includes("lln") || !lec29.conceptIds.includes("clt")) {
+  fail("Stat 110 lecture 29 should tag both lln and clt");
 }
 
 if (!relatedConcepts(catalog.concepts, "poisson").some((r) => r.id === "discrete-named")) {

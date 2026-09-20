@@ -32,9 +32,12 @@ export type KnowledgeStatus = "known" | "shaky" | "unseen";
 export type TheoremStatus = "asserted" | "proved";
 
 export interface ConceptTheorem {
+  title?: string;
   claim: string;
   status: TheoremStatus;
   proof?: string;
+  canonical?: string;
+  lemma?: string;
 }
 
 export interface KnowledgeEntry {

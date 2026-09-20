@@ -7,12 +7,20 @@ import {
   type Catalog,
 } from "./catalog.js";
 import { projectRoot } from "./env.js";
+import { lecturesAllComplete } from "./lectureProgress.js";
 import type { CourseMeta, Lecture } from "./types.js";
+
+type SiteCourse = {
+  title: string;
+  href: string;
+  instructor: string;
+};
 
 export interface InitCourseResult {
   course: CourseMeta;
   lectureCount: number;
   siteUpdated: boolean;
+  created?: boolean;
 }
 
 export function looksLikeCourseUrl(raw: string): boolean {
@@ -29,28 +37,49 @@ export function looksLikeCourseUrl(raw: string): boolean {
 
 export function matchExistingCourse(
   courses: CourseMeta[],
-  title: string,
+  query: string,
 ): CourseMeta | undefined {
-  const trimmed = title.trim();
+  const trimmed = query.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
   const slug = trimmed
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return courses.find(
+  const byName = courses.find(
     (c) =>
       c.id === slug ||
       c.title.toLowerCase() === lower ||
       c.id.replace(/-/g, " ") === lower,
   );
+  if (byName) return byName;
+  if (!looksLikeCourseUrl(trimmed)) return undefined;
+  try {
+    const href = normalizeCourseUrl(trimmed);
+    return courses.find((c) => sameCourseUrl(c.sourceUrl, href));
+  } catch {
+    return undefined;
+  }
 }
 
 export async function initCourseFromUrl(rawUrl: string): Promise<InitCourseResult> {
   const sourceUrl = normalizeCourseUrl(rawUrl);
   const catalog = await loadCatalog();
-  if (catalog.courses.some((c) => sameCourseUrl(c.sourceUrl, sourceUrl))) {
-    throw new Error("That course is already in the catalog.");
+  const existing = catalog.courses.find((c) => sameCourseUrl(c.sourceUrl, sourceUrl));
+  if (existing) {
+    const lectureCount = (catalog.lectures[existing.id] ?? []).length;
+    if ((existing.track ?? "currently") === "later") {
+      await markCourseCurrently(existing.id);
+      const opened = (await loadCatalog()).courses.find((c) => c.id === existing.id);
+      const course = opened ?? { ...existing, track: "currently" as const };
+      const siteUpdated = await callPersonalSite("onCourseInit", {
+        title: course.title,
+        href: course.sourceUrl,
+        instructor: course.instructors,
+      });
+      return { course, lectureCount, siteUpdated, created: false };
+    }
+    return { course: existing, lectureCount, siteUpdated: false, created: false };
   }
 
   const html = await fetchText(sourceUrl);
@@ -85,25 +114,50 @@ export async function initCourseFromUrl(rawUrl: string): Promise<InitCourseResul
   );
   await writeFile(join(dir, "lectures.json"), `${JSON.stringify(lectures, null, 2)}\n`, "utf8");
 
-  const indexPath = join(projectRoot(), "courses", "index.json");
-  let index: { courses: CourseMeta[] } = { courses: [] };
-  try {
-    index = JSON.parse(await readFile(indexPath, "utf8")) as { courses: CourseMeta[] };
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") throw err;
-  }
-  if (!Array.isArray(index.courses)) index.courses = [];
+  const index = await readCourseIndex();
   index.courses.push(meta);
-  await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
-  invalidateCatalog();
+  await writeCourseIndex(index);
 
-  const siteUpdated = await maybeUpdatePersonalSite({
+  const siteUpdated = await callPersonalSite("onCourseInit", {
     title,
     href: sourceUrl,
     instructor: instructors,
   });
-  return { course: meta, lectureCount: lectures.length, siteUpdated };
+  return { course: meta, lectureCount: lectures.length, siteUpdated, created: true };
+}
+
+export function finishedCourseMeta(course: CourseMeta): CourseMeta {
+  const { latest: _latest, ...rest } = course;
+  return { ...rest, track: "previously", complete: true };
+}
+
+export function studyingCourseMeta(course: CourseMeta): CourseMeta {
+  const { complete: _complete, ...rest } = course;
+  return { ...rest, track: "currently" };
+}
+
+/** Move currently-tracked courses whose lectures are all complete onto previously. */
+export async function closeFinishedCourses(
+  catalog: Catalog,
+  progress: Record<string, Record<string, unknown>>,
+): Promise<boolean> {
+  const closing = catalog.courses.filter((course) => {
+    if ((course.track ?? "currently") !== "currently") return false;
+    return lecturesAllComplete(catalog.lectures[course.id] ?? [], progress[course.id]);
+  });
+  if (!closing.length) return false;
+  let wrote = false;
+  for (const course of closing) {
+    const changed = await markCoursePreviously(course.id);
+    if (!changed) continue;
+    wrote = true;
+    await callPersonalSite("onCourseComplete", {
+      title: course.title,
+      href: course.sourceUrl,
+      instructor: course.instructors,
+    });
+  }
+  return wrote;
 }
 
 function normalizeCourseUrl(raw: string): string {
@@ -175,23 +229,37 @@ function pageInstructors(html: string): string {
   return decode((m?.[1] || "See course page").replace(/\s+/g, " ").trim());
 }
 
+export function parseCourseLectures(html: string, pageUrl: string): Lecture[] {
+  const videos = parseVideoResources(html, pageUrl);
+  if (videos.length) return videos;
+  return parseLectureList(html, pageUrl);
+}
+
 async function collectLectures(sourceUrl: string, homeHtml: string): Promise<Lecture[]> {
+  const home = parseCourseLectures(homeHtml, sourceUrl);
+  if (home.some((lec) => /\/resources\/lecture-\d+/i.test(lec.url))) {
+    return home;
+  }
   const candidates = [
     joinUrl(sourceUrl, "pages/calendar/"),
     joinUrl(sourceUrl, "pages/lecture-notes/"),
     joinUrl(sourceUrl, "pages/video-lectures/"),
+    joinUrl(sourceUrl, "video_galleries/video-lectures/"),
     joinUrl(sourceUrl, "lectures.html"),
     joinUrl(sourceUrl, "lecture-videos"),
     sourceUrl,
   ];
   const seenHtml = new Set<string>();
-  let lectures: Lecture[] = parseLectureList(homeHtml, sourceUrl);
+  let lectures = home;
   for (const url of candidates) {
     if (seenHtml.has(url)) continue;
     seenHtml.add(url);
     try {
       const html = url === sourceUrl ? homeHtml : await fetchText(url);
-      const found = parseLectureList(html, url);
+      const found = parseCourseLectures(html, url);
+      if (found.some((lec) => /\/resources\/lecture-\d+/i.test(lec.url))) {
+        return found;
+      }
       if (found.length > lectures.length) lectures = found;
     } catch {
       /* try the next page */
@@ -215,6 +283,30 @@ function joinUrl(base: string, path: string): string {
   const root = u.pathname.replace(/\/+$/, "");
   u.pathname = `${root}/${path.replace(/^\/+/, "")}`;
   return u.toString();
+}
+
+function parseVideoResources(html: string, pageUrl: string): Lecture[] {
+  const titles = new Map<number, string>();
+  const labeled =
+    /(?:Lecture|Lec\.?)\s+(\d{1,2})\s*:\s*([^<]{3,120})/gi;
+  for (const match of html.matchAll(labeled)) {
+    const n = Number(match[1]);
+    const title = decode(match[2]).replace(/\s+/g, " ").trim();
+    if (!titles.has(n) && title.length >= 3) titles.set(n, title);
+  }
+  const byN = new Map<number, Lecture>();
+  const hrefs = /href="([^"]*\/resources\/lecture-(\d+)[^"]*)"/gi;
+  for (const match of html.matchAll(hrefs)) {
+    const n = Number(match[2]);
+    if (!Number.isInteger(n) || n < 1 || n > 80) continue;
+    const url = new URL(match[1], pageUrl).toString();
+    const title = titles.get(n) ?? `Lecture ${n}`;
+    const prior = byN.get(n);
+    if (!prior || title.length >= prior.title.length) {
+      byN.set(n, { n, title: title.slice(0, 120), url, conceptIds: [] });
+    }
+  }
+  return [...byN.values()].sort((a, b) => a.n - b.n);
 }
 
 function parseLectureList(html: string, pageUrl: string): Lecture[] {
@@ -285,18 +377,68 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-async function maybeUpdatePersonalSite(course: {
-  title: string;
-  href: string;
-  instructor: string;
-}): Promise<boolean> {
+async function readCourseIndex(): Promise<{ courses: CourseMeta[] }> {
+  const indexPath = join(projectRoot(), "courses", "index.json");
+  try {
+    const index = JSON.parse(await readFile(indexPath, "utf8")) as {
+      courses: CourseMeta[];
+    };
+    if (!Array.isArray(index.courses)) return { courses: [] };
+    return index;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") throw err;
+    return { courses: [] };
+  }
+}
+
+async function writeCourseIndex(index: { courses: CourseMeta[] }): Promise<void> {
+  const indexPath = join(projectRoot(), "courses", "index.json");
+  await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  invalidateCatalog();
+}
+
+async function markCoursePreviously(courseId: string): Promise<boolean> {
+  const index = await readCourseIndex();
+  const at = index.courses.findIndex((c) => c.id === courseId);
+  if (at < 0) return false;
+  const next = finishedCourseMeta(index.courses[at]);
+  const prior = index.courses[at];
+  if (
+    prior.track === next.track &&
+    prior.complete === next.complete &&
+    prior.latest == null
+  ) {
+    return false;
+  }
+  index.courses[at] = next;
+  await writeCourseIndex(index);
+  return true;
+}
+
+async function markCourseCurrently(courseId: string): Promise<boolean> {
+  const index = await readCourseIndex();
+  const at = index.courses.findIndex((c) => c.id === courseId);
+  if (at < 0) return false;
+  const next = studyingCourseMeta(index.courses[at]);
+  if (index.courses[at].track === next.track) return false;
+  index.courses[at] = next;
+  await writeCourseIndex(index);
+  return true;
+}
+
+async function callPersonalSite(
+  hook: "onCourseInit" | "onCourseComplete",
+  course: SiteCourse,
+): Promise<boolean> {
   const path = join(projectRoot(), "local", "personal-site.ts");
   try {
-    const mod = (await import(pathToFileURL(path).href)) as {
-      onCourseInit?: (c: typeof course) => Promise<boolean>;
-    };
-    if (typeof mod.onCourseInit !== "function") return false;
-    return Boolean(await mod.onCourseInit(course));
+    const mod = (await import(pathToFileURL(path).href)) as Partial<
+      Record<typeof hook, (c: SiteCourse) => Promise<boolean>>
+    >;
+    const fn = mod[hook];
+    if (typeof fn !== "function") return false;
+    return Boolean(await fn(course));
   } catch {
     return false;
   }

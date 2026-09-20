@@ -1,12 +1,16 @@
 import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
 import { asOutline } from "./conceptOutline.js";
 import { cursorApiKey, cursorModel, projectRoot } from "./env.js";
+import { LEAN_SNIPPET, type MathlibHit } from "./leanSearch.js";
 import {
   clip,
   formatVocabPair,
   parseTheoremBullet,
   parseVocabPair,
+  SLOPPY_PROOF_CORRECTION,
+  isProofSketch,
 } from "./learner.js";
+import { wrapStandardTex } from "./texDisplay.js";
 import type {
   ConceptTheorem,
   DebriefCard,
@@ -79,6 +83,7 @@ export const CLIP = {
   teachings: 2_000,
   rewriteProfile: 2_200,
   rewriteEvidence: 2_000,
+  lean: LEAN_SNIPPET,
 } as const;
 
 export async function createStudyAgent(): Promise<LocalAgent> {
@@ -138,13 +143,13 @@ function contextBlock(opts: {
 export const DEBRIEF_INSTRUCTIONS = [
   "Graham wrote a summary of the lecture. Check conceptual mistakes against standard knowledge for these tags.",
   "Not an exam. Do not score or nag about skipped homework. Call publish_debrief once. Chat text is ignored. Use $...$ for maths.",
-  "corrections: 0–5 real inverted definitions. Empty if sound. Do not invent.",
+  "corrections: 0–5 real inverted definitions, or a proof he claimed without naming a move. Empty if sound. Do not invent.",
   "gaps: 0–5 structural pieces that matter, not a completeness rubric.",
   "summaryNote: 2–4 sentences, encouraging, structural.",
   "offeredQuests: only if his summary explicitly asks to chase a side topic (title + why). Empty otherwise. Do not upsell detours.",
   "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Wrong important idea → shaky.",
   "vocab: 0–8 {term, gloss} pairs from THIS summary. gloss is a one-line definition in his words (or a close paraphrase of what he wrote). Skip a word he named but did not characterize. Empty if this was not a vocabulary pass. Do not invent a glossary.",
-  "theorems: 0–4 {claim, proof} from THIS summary, preferred over extra examples when both exist. claim is the actual statement (existence, uniqueness, detailed balance ⇒ stationary, …). proof is only a sketch he wrote — empty if he only named the result (host stores that as asserted; a later summary that proves the same claim, even on another course, upgrades it). Skip ‘there is a theorem’ with no statement. Never invent a proof. Do not send a status field.",
+  "theorems: 0–4 {claim, proof} from THIS summary, preferred over extra examples when both exist. claim is the actual statement (existence, uniqueness, detailed balance ⇒ stationary, …). proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field.",
   "example: at most one per concept, from THIS summary. Keep it only if it carries a method or theorem (a computation, a reusable model, a special case that proves a claim). Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
 ].join("\n\n");
 
@@ -231,7 +236,17 @@ export async function runDebrief(opts: {
                 summaryNote: String(args.summaryNote),
                 offeredQuests: asQuests(args.offeredQuests),
               };
-              holder.updates = asUpdates(args.knowledgeUpdates);
+              const parsed = asUpdates(args.knowledgeUpdates);
+              holder.updates = parsed.entries;
+              if (
+                parsed.sloppy &&
+                !holder.card.corrections.some((c) => /interesting moves/i.test(c))
+              ) {
+                holder.card.corrections = [
+                  SLOPPY_PROOF_CORRECTION,
+                  ...holder.card.corrections,
+                ].slice(0, 5);
+              }
               return "Debrief recorded. Stop.";
             },
           },
@@ -833,6 +848,62 @@ export async function runQuestTurn(opts: {
   return holder.value;
 }
 
+export const STANDARD_PROOF_INSTRUCTIONS = [
+  "Translate this mathlib proof into a write-up Graham can reread in six months. Call publish_standard_proof once. Chat text is ignored.",
+  "Do not invent steps that are not in the Lean. Do not dump Lean tactics, `by`, or identifiers as the proof.",
+  "Prefer the argument for ordinary i.i.d. random variables. Skip vacuous library cases (e.g. $X_0=0$ a.s.) unless that is the actual content. Do not lean on Banach-space or index-from-zero bookkeeping unless the claim needs it.",
+  "explanation: 1–3 short paragraphs a six-month reread can follow. $...$ for inline maths. Paraphrase the Lean in ordinary probability language (a version that agrees almost surely, pairwise independence, Etemadi’s strong law). Do not name modules, lemmas, tactics, or identifiers (`strong_law_ae`, `IndepFun.congr`, `measurable copies` as a library term, index-from-zero). No backticks for library names.",
+  "tex: each proof step is its own display — one \\begin{gathered}...\\end{gathered} per step, with \\\\ between short rows. Never one long sentence of \\text{} on a single row. Never two environments in one $$. Formulae only; no English paragraphs in \\text{}; no \\[ \\]; no Lean identifiers.",
+].join("\n\n");
+
+export async function writeStandardProof(opts: {
+  agent: LocalAgent;
+  claim: string;
+  hit: MathlibHit;
+}): Promise<string | undefined> {
+  const holder: { explanation?: string; tex?: string } = {};
+  try {
+    const run = await opts.agent.send(
+      [
+        STANDARD_PROOF_INSTRUCTIONS,
+        `Claim:\n${clip(opts.claim, 500)}`,
+        `Mathlib \`${opts.hit.lemma}\` informal:\n${clip(opts.hit.informal, 500)}`,
+        `Lean:\n${clip(opts.hit.lean, CLIP.lean)}`,
+      ].join("\n\n"),
+      {
+        local: {
+          customTools: {
+            publish_standard_proof: {
+              description: "Publish the Standard TeX proof. Call once.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  explanation: { type: "string" },
+                  tex: { type: "string" },
+                },
+                required: ["explanation"],
+              },
+              execute: (args) => {
+                holder.explanation = String(args.explanation ?? "").trim();
+                holder.tex = String(args.tex ?? "").trim();
+                return "Standard proof recorded. Stop.";
+              },
+            },
+          },
+        },
+      },
+    );
+    await waitRun(run);
+  } catch {
+    return undefined;
+  }
+  const explanation = holder.explanation?.trim();
+  if (!explanation) return undefined;
+  const tex = holder.tex?.replace(/^\$+|\$+$/g, "").trim();
+  if (!tex) return explanation.slice(0, 3_500);
+  return `${explanation}\n\n${wrapStandardTex(tex)}`.slice(0, 3_500);
+}
+
 export async function rewriteLearnerNotes(opts: {
   agent: LocalAgent;
   priorProfile: string;
@@ -971,11 +1042,16 @@ function asVocab(value: unknown): string[] {
   return rows.slice(0, 8);
 }
 
-function asTheorems(value: unknown): ConceptTheorem[] {
+function asTheorems(
+  value: unknown,
+  flag: { sloppy: boolean },
+): ConceptTheorem[] {
   if (!Array.isArray(value)) return [];
   const rows: ConceptTheorem[] = [];
   for (const item of value) {
     if (typeof item === "string") {
+      const named = /\bProof:\s*([\s\S]+)$/i.exec(item)?.[1]?.trim() ?? "";
+      if (named && !isProofSketch(named)) flag.sloppy = true;
       const parsed = parseTheoremBullet(item);
       if (parsed) rows.push(parsed);
       continue;
@@ -985,8 +1061,9 @@ function asTheorems(value: unknown): ConceptTheorem[] {
     const claim = String(o.claim ?? "").trim();
     const proof = String(o.proof ?? "").trim();
     if (!claim) continue;
+    if (proof && !isProofSketch(proof)) flag.sloppy = true;
     const parsed = parseTheoremBullet(
-      proof ? `${claim} Proof: ${proof}` : claim,
+      proof && isProofSketch(proof) ? `${claim} Proof: ${proof}` : claim,
     );
     if (parsed) rows.push(parsed);
   }
@@ -1008,9 +1085,13 @@ function asQuests(value: unknown): OfferedQuest[] {
     .slice(0, 2);
 }
 
-function asUpdates(value: unknown): KnowledgeEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value
+function asUpdates(value: unknown): {
+  entries: KnowledgeEntry[];
+  sloppy: boolean;
+} {
+  const flag = { sloppy: false };
+  if (!Array.isArray(value)) return { entries: [], sloppy: false };
+  const entries = value
     .map((row) => {
       if (!row || typeof row !== "object") return undefined;
       const o = row as {
@@ -1027,7 +1108,7 @@ function asUpdates(value: unknown): KnowledgeEntry[] {
       const st = status === "known" ? "known" : "shaky";
       const example = String(o.example ?? "").trim();
       const vocab = asVocab(o.vocab);
-      const theorems = asTheorems(o.theorems);
+      const theorems = asTheorems(o.theorems, flag);
       return {
         id,
         status: st,
@@ -1038,6 +1119,7 @@ function asUpdates(value: unknown): KnowledgeEntry[] {
       };
     })
     .filter((e): e is KnowledgeEntry => Boolean(e));
+  return { entries, sloppy: flag.sloppy };
 }
 
 function validKind(kind: string): TeachbackResult["kind"] {

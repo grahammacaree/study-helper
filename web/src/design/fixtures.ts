@@ -529,7 +529,7 @@ export const SCENARIOS: {
   {
     id: "busy",
     label: "Working",
-    note: "Interrupt row instead of composer",
+    note: "Interrupt row instead of composer; processing ticks in the pane",
     busy: true,
     session: session({
       kind: "debrief",
@@ -543,6 +543,13 @@ export const SCENARIOS: {
           kind: "status",
           text: "Lecture 4: Hashing. Write a summary of the lecture.",
           at: 1,
+        },
+        {
+          id: "m2",
+          role: "user",
+          kind: "text",
+          text: "Hashing gives expected O(1) if the table is big.",
+          at: 2,
         },
       ],
     }),

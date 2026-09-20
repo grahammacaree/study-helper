@@ -7,6 +7,7 @@ import {
   gradeTeachback,
   judgeQuestTopic,
   newPriming,
+  writeStandardProof,
   rewriteLearnerNotes,
   runDebrief,
   runQuestTurn,
@@ -29,8 +30,16 @@ import { seedConceptOutline } from "./conceptOutline.js";
 import {
   initCourseFromUrl,
   looksLikeCourseUrl,
-  matchExistingCourse,
+  closeFinishedCourses,
 } from "./initCourse.js";
+import { attachMathlibWriteups } from "./leanSearch.js";
+import {
+  ADEQUATE_TEACHBACK,
+  adequateParaphrase,
+  alignKnowledgeTheorems,
+  screenQuizItems,
+  screenQuestTopic,
+} from "./typeSafe.js";
 import {
   addQuest,
   formatConceptTeaching,
@@ -126,7 +135,8 @@ interface Session {
 const sessions = new Map<string, Session>();
 
 export async function catalogPayload(): Promise<CatalogPayload> {
-  const [catalog, learner] = await Promise.all([loadCatalog(), loadLearner()]);
+  let catalog = await loadCatalog();
+  const learner = await loadLearner();
   const hinted = applyProgressHints(learner.progress, catalog);
   const decayed = applyDecayHints({
     catalog,
@@ -137,6 +147,9 @@ export async function catalogPayload(): Promise<CatalogPayload> {
     learner.progress = hinted.progress;
     learner.decay = decayed.decay;
     await saveLearner(learner);
+  }
+  if (await closeFinishedCourses(catalog, hinted.progress)) {
+    catalog = await loadCatalog();
   }
   const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
   if (quested.missingIds.length) {
@@ -273,6 +286,17 @@ async function resolveNewQuestTitle(
   if (!isStudyConcept(title, slugConceptId(title))) {
     throw new Error("That's a recap, not a concept for the library.");
   }
+  const screened = await screenQuestTopic(
+    title,
+    Object.entries(concepts).map(([id, def]) => ({ id, name: def.name })),
+  );
+  if (screened?.kind === "reject") throw new Error(screened.reason);
+  if (screened?.kind === "existing" && concepts[screened.id]) {
+    return { kind: "concept", conceptId: screened.id };
+  }
+  if (screened?.kind === "accept") {
+    return { kind: "quest", title: screened.name };
+  }
   const questAgent = await createStudyAgent();
   try {
     const verdict = await judgeQuestTopic({
@@ -307,10 +331,6 @@ export async function startSession(input: {
   if (input.kind === "find") {
     const topic = input.questTitle?.trim();
     if (!topic) throw new Error("Say a topic or paste a course URL.");
-    const hit = matchExistingCourse(catalog.courses, topic);
-    if (hit) {
-      throw new Error(`${hit.title} is already in the catalog.`);
-    }
   } else {
     if (!input.courseId) throw new Error("courseId is required.");
     const courseId = input.courseId;
@@ -780,6 +800,11 @@ export async function finishSession(id: string): Promise<SessionSnapshot> {
         return;
       }
       s.phase = "done";
+      if (s.quizMode === "course_end") {
+        const catalog = await loadCatalog();
+        const learner = await loadLearner();
+        await closeFinishedCourses(catalog, learner.progress);
+      }
       push(s, {
         role: "assistant",
         kind: "status",
@@ -887,13 +912,16 @@ async function commitPickedCourse(s: Session, rawUrl: string): Promise<void> {
   s.offeredCourses = [];
   s.phase = "done";
   const n = result.lectureCount;
+  const name = result.course.title;
   push(s, {
     role: "assistant",
     kind: "status",
     text:
-      n <= 1
-        ? `Added ${result.course.title}. The public page only yielded one lecture row — say if you have a better listing URL.`
-        : `Added ${result.course.title} · ${n} lectures. Concept tags start empty.`,
+      result.created === false
+        ? `Opened ${name} — it was already in the catalog.`
+        : n <= 1
+          ? `Added ${name}. The public page only yielded one lecture row — say if you have a better listing URL.`
+          : `Added ${name} · ${n} lectures. Concept tags start empty.`,
   });
   await closeAgent(s);
 }
@@ -1192,17 +1220,9 @@ async function startStoredConceptQuiz(s: Session): Promise<void> {
   const learner = await loadLearner();
   const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
   const name = quested.concepts[s.conceptId]?.name ?? s.conceptId;
-  const ctx = await contextOf(s);
-  const bank = await withAgent(s, (agent) =>
-    writeQuizSet({
-      agent,
-      primed: s.primed,
-      ctx,
-      concepts: [{ id: s.conceptId as string, name }],
-    }),
+  s.quizBank = freshConceptQuizBank(
+    await writeFilteredQuiz(s, [{ id: s.conceptId as string, name }]),
   );
-  advancePriming(s.primed);
-  s.quizBank = freshConceptQuizBank(bank);
   await writeConceptQuiz(s.conceptId, s.quizBank);
   rememberTouch(learner, { ...catalog, concepts: quested.concepts }, [s.conceptId], {
     courseId: s.courseId,
@@ -1301,31 +1321,18 @@ async function writeQuestQuiz(s: Session): Promise<void> {
   const id = s.questId ? `quest:${s.questId}` : "quest";
   s.quizQueue = [id];
   s.coveredConcepts = [];
-  const ctx = await contextOf(s);
-  s.quizBank = await withAgent(s, (agent) =>
-    writeQuizSet({
-      agent,
-      primed: s.primed,
-      ctx,
-      concepts: [{ id, name: s.questTitle || "Side quest" }],
-    }),
-  );
-  advancePriming(s.primed);
+  s.quizBank = await writeFilteredQuiz(s, [
+    { id, name: s.questTitle || "Side quest" },
+  ]);
   await emitQuizItem(s);
 }
 
 async function gradeQuestGate(s: Session, text: string): Promise<void> {
-  const ctx = await contextOf(s);
-  const result = await withAgent(s, (agent) =>
-    gradeTeachback({
-      agent,
-      primed: s.primed,
-      ctx,
-      prompt: s.pendingCorrection || "Restate the idea.",
-      answer: text,
-    }),
+  const result = await gradeParaphrase(
+    s,
+    s.pendingCorrection || "Restate the idea.",
+    text,
   );
-  advancePriming(s.primed);
   s.teachback = result;
   push(s, { role: "assistant", kind: "teachback", text: result.message });
   if (result.kind === "question_before" || result.kind === "thin") {
@@ -1384,19 +1391,13 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
       throw new Error("No concepts to quiz yet.");
     }
     s.coveredConcepts = [];
-    const ctx = await contextOf(s);
-    s.quizBank = await withAgent(s, (agent) =>
-      writeQuizSet({
-        agent,
-        primed: s.primed,
-        ctx,
-        concepts: s.quizQueue.map((id) => ({
-          id,
-          name: catalog.concepts[id]?.name ?? id,
-        })),
-      }),
+    s.quizBank = await writeFilteredQuiz(
+      s,
+      s.quizQueue.map((id) => ({
+        id,
+        name: catalog.concepts[id]?.name ?? id,
+      })),
     );
-    advancePriming(s.primed);
     s.kind = "quiz";
     s.phase = "quiz_item";
     push(s, {
@@ -1458,13 +1459,18 @@ async function nextQuiz(s: Session): Promise<void> {
 
 async function debriefSummary(s: Session, summary: string): Promise<void> {
   const ctx = await contextOf(s);
-  const { card, updates } = await withAgent(s, (agent) =>
+  const { card, updates: rawUpdates } = await withAgent(s, (agent) =>
     runDebrief({ agent, primed: s.primed, ctx, summary }),
   );
+  const learner = await loadLearner();
+  const aligned = await alignKnowledgeTheorems(learner.knowledge, rawUpdates);
+  const updates = await attachMathlibWriteups(aligned, {
+    writeProof: (hit, claim) =>
+      withAgent(s, (agent) => writeStandardProof({ agent, claim, hit })),
+  });
   advancePriming(s.primed);
   s.debrief = card;
   s.offeredQuests = card.offeredQuests;
-  const learner = await loadLearner();
   learner.knowledge = upsertKnowledge(learner.knowledge, updates);
   const spread = spreadTheoremProofs(learner.knowledge, updates);
   learner.knowledge = spread.list;
@@ -1501,18 +1507,58 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
   );
 }
 
-async function gradeCorrection(s: Session, text: string): Promise<void> {
+async function writeFilteredQuiz(
+  s: Session,
+  concepts: { id: string; name: string }[],
+) {
+  const ctx = await contextOf(s);
+  const bank = await withAgent(s, (agent) =>
+    writeQuizSet({
+      agent,
+      primed: s.primed,
+      ctx,
+      concepts,
+    }),
+  );
+  advancePriming(s.primed);
+  return screenQuizItems(
+    bank,
+    Object.fromEntries(concepts.map((c) => [c.id, c.name])),
+  );
+}
+
+async function gradeParaphrase(
+  s: Session,
+  prompt: string,
+  answer: string,
+) {
+  if (await adequateParaphrase(prompt, answer)) {
+    return {
+      adequate: true,
+      kind: "adequate" as const,
+      message: ADEQUATE_TEACHBACK,
+    };
+  }
   const ctx = await contextOf(s);
   const result = await withAgent(s, (agent) =>
     gradeTeachback({
       agent,
       primed: s.primed,
       ctx,
-      prompt: s.pendingCorrection || "Restate the correction.",
-      answer: text,
+      prompt,
+      answer,
     }),
   );
   advancePriming(s.primed);
+  return result;
+}
+
+async function gradeCorrection(s: Session, text: string): Promise<void> {
+  const result = await gradeParaphrase(
+    s,
+    s.pendingCorrection || "Restate the correction.",
+    text,
+  );
   s.teachback = result;
   push(s, { role: "assistant", kind: "teachback", text: result.message });
   if (result.kind === "question_before" || result.kind === "thin") {
@@ -1581,12 +1627,15 @@ async function finishDebrief(
       ? "Stored as shaky. Next session will read the files, not this chat."
       : "Stored as debriefed. Next session will read the files, not this chat.";
   push(s, { role: "assistant", kind: "status", text: stored });
-  s.inspect = await refreshInspect(s);
   const lectures = (catalog.lectures[s.courseId] ?? []).map((lec) => ({
     n: lec.n,
     status: normalizeLectureStatus(learner.progress[s.courseId]?.[String(lec.n)]),
   }));
   const remaining = nextIncompleteLectureN(lectures);
+  if (remaining == null) {
+    await closeFinishedCourses(catalog, learner.progress);
+  }
+  s.inspect = await refreshInspect(s);
   if (remaining == null) {
     const courseHits = hitConceptIds(catalog, learner.progress, s.courseId);
     if (courseHits.length) {

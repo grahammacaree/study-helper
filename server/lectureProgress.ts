@@ -17,3 +17,11 @@ export function nextIncompleteLectureN(
   const ordered = lectures.slice().sort((a, b) => a.n - b.n);
   return ordered.find((lec) => lec.status !== "complete")?.n ?? null;
 }
+
+export function lecturesAllComplete(
+  lectures: { n: number }[],
+  progress: Record<string, unknown> | undefined,
+): boolean {
+  if (!lectures.length) return false;
+  return lectures.every((lec) => lectureIsComplete(progress?.[String(lec.n)]));
+}

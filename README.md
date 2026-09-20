@@ -6,7 +6,7 @@ It is personal software on your machine. The public GitHub copy is the app, not 
 
 ![Study helper: a concept page in the centre, courses on the left, concept library on the right](docs/ui.jpg)
 
-**Why it exists** — friction, how a concept grows, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
+**Why it exists** — friction, how a concept grows, restatements that earn library nodes, how a new course is chosen: [docs/why.md](docs/why.md). How theorem write-ups should read (named claim, mathlib-default numbered proof, TypeSafe / Jev cribs): [docs/proofstructure.md](docs/proofstructure.md). Prompt sizes: [docs/token-efficiency.md](docs/token-efficiency.md).
 
 Sibling of the [code-review walkthrough](https://github.com/grahammacaree/code-review-helper): Vite + Express + `@cursor/sdk`, host-owned sessions, one Cursor agent per session, file memory.
 
@@ -20,7 +20,7 @@ Sibling of the [code-review walkthrough](https://github.com/grahammacaree/code-r
 cp .env.example .env
 ```
 
-Put the key in `.env` as `CURSOR_API_KEY`. Optional: `CURSOR_MODEL` (default `composer-2.5`), `PORT` (default `8790`).
+Put the key in `.env` as `CURSOR_API_KEY`. Optional: `CURSOR_MODEL` (default `composer-2.5`), `PORT` (default `8790`). Optional `TYPESAFE_API_KEY` lets **Jev** (TypeSafe System One) skip a Cursor turn when a side-quest title is trivia or already in the library, when a teach-back already restates the idea, when a mathlib hit is the wrong theorem, and when labelling which tricks a proof line uses (`TYPESAFE=0` to force the old path).
 
 ```bash
 npm install
@@ -48,7 +48,7 @@ Three panes:
 
 ### Adding a course
 
-Type a topic (`game theory`) or paste a public listing **https** URL in the left nav. A URL (or a name already in the catalog) is enough. A topic opens a centre-pane chat about freely available video lecture series — MIT OCW calendars, Yale Open Courses, Harvard Stat 110, Caltech Learning from Data, and similar public listings. Pick one; the host fetches that page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash. The bar for what counts as a series is in [docs/why.md](docs/why.md#selecting-a-new-course).
+Type a topic (`game theory`) or paste a public listing **https** URL in the left nav. A URL (or a name already in the catalog) is enough: if that course is already stored, it opens instead of erroring, and a `"track": "later"` row comes onto Current. A topic opens a centre-pane chat about freely available video lecture series — MIT OCW calendars, Yale Open Courses, Harvard Stat 110, Caltech Learning from Data, and similar public listings. Pick one; the host fetches that page and writes `courses/<id>/` plus an `index.json` row. Concept tags start empty; fill them in when you care. A missing `courses/` folder is an empty catalog, not a crash. The bar for what counts as a series is in [docs/why.md](docs/why.md#selecting-a-new-course).
 
 Unstarted courses can sit in `courses/index.json` with `"track": "later"` so they stay off Current and Completed until you mean to study them.
 
@@ -68,11 +68,13 @@ Finishing the **last** lecture always starts a five-question **course review**, 
 
 On a finished course (every lecture complete), **Review** is an optional retake of that same five-concept pick. Skip is allowed on a retake.
 
+![Study helper: a Review mix — conceptual multiple choice, a local explanation after a pick, then the next item](docs/quiz.jpg)
+
 ### Concept library
 
 A node appears if a **complete** lecture tags it, plus ancestors so the tree can stand, plus concepts from **done** side quests. Incomplete lectures stay hidden. Recap lectures (quiz review, course synthesis) do not unlock a node. Fresh concepts get a slight emphasis; opening a concept does not count as restudy. **Ask** or starting a concept **Quiz** does.
 
-Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Later lectures tagged to the same idea can fold **Vocabulary**, **Theorems**, and **Examples** from your summary (host-owned sections; no extra model call). How those passes work — gloss required, asserted vs proved, cartoons stay out — is in [docs/why.md](docs/why.md#how-a-concept-grows). Host-owned “see also” links jump to other concepts.
+Click a concept for stored teaching in the centre pane (Ask only). Non-root concepts offer **Quiz**. The first quiz is generated and saved next to the teaching file; **Quiz** again reuses that set and does not regenerate. Teaching is hidden during the check. If there is no teaching file yet, one model turn writes it; later visits reread disk. Later lectures tagged to the same idea can fold **Vocabulary**, **Theorems**, and **Examples** from your summary (host-owned sections; no extra model call). A theorem is proved when you name the interesting moves, not a TeX slog; if mathlib has an easy hit (and TypeSafe agrees it is the same claim), numbered TeX lands as the proof, with Jev-labelled cribs under the lines. How those write-ups should read is in [docs/proofstructure.md](docs/proofstructure.md). Host-owned “see also” links jump to other concepts.
 
 ### Side quests
 
@@ -88,7 +90,7 @@ Long-term memory is files, not chat history. A new session starts a **new** Curs
 | --- | --- |
 | `courses/` | Lecture maps, blurbs, `concepts.json` |
 | `courses/index.json` | Course list: `currently` / `previously` / `later`, `latest`, `complete` |
-| `.env` | `CURSOR_API_KEY` (and optional model, port, site root) |
+| `.env` | `CURSOR_API_KEY` (and optional model, port, site root, TypeSafe key) |
 | `data/learner/profile.md` | How you study (craft). Agent-maintained after a debrief. |
 | `data/learner/knowledge.md` | Known / shaky / unseen by concept id, plus vocab / theorems / example folded from summaries |
 | `data/learner/concepts/<id>.md` | Stored teaching (written on first open). Later lectures may add vocab, theorems, examples — see [how a concept grows](docs/why.md#how-a-concept-grows) |
@@ -99,9 +101,9 @@ Long-term memory is files, not chat history. A new session starts a **new** Curs
 | `data/learner/quiz-log.json` | Scores for spaced mix |
 | `data/learner/decay.json` | Direct touches and neighbour echoes (freshness). No notes. |
 | `data/sessions/` | UI resume |
-| `local/` | Optional personal-site bridge |
+| `local/` | Optional personal-site bridge (`onCourseInit` / `onCourseComplete`) |
 
-`latest` / `complete` seed progress on load and will not downgrade a complete lecture. Neighbour **echoes** (seeing Chebyshev next to Hoeffding) slow decay; they are not a restudy.
+`latest` / `complete` seed progress on load and will not downgrade a complete lecture. When every lecture in a currently-tracked course is complete, the host sets `track` to `previously` and `complete` true (and drops `latest`). Neighbour **echoes** (seeing Chebyshev next to Hoeffding) slow decay; they are not a restudy.
 
 [docs/why.md](docs/why.md) is the intent. [docs/token-efficiency.md](docs/token-efficiency.md) has measured prompt sizes (`npm run check:measure`).
 
@@ -111,7 +113,7 @@ Personal local software, not a hosted product.
 
 **On this machine.** Key, learner files, and course maps are gitignored and unencrypted at rest.
 
-**Off this machine.** Debrief text, quiz *generation* (not the letter you pick), Ask/teach-back, and slices of learner files go through the **Cursor API** and bill to your key. Do not commit `.env`, `data/`, or `courses/`. The server does not print summaries to logs.
+**Off this machine.** Debrief text, quiz *generation* (not the letter you pick), Ask/teach-back, and slices of learner files go through the **Cursor API** and bill to your key. With `TYPESAFE_API_KEY` set, claims, quest titles, teach-back paraphrases, and quiz prompts also go to TypeSafe (not logged here). Do not commit `.env`, `data/`, or `courses/`. The server does not print summaries, paraphrases, or API bodies to logs.
 
 **The local HTTP API.** No login. Do not expose 5180/8790 (or whichever Vite port) to the network.
 
@@ -129,6 +131,7 @@ Delete `data/`, `courses/`, and `.env` for a clean slate.
 | `web/src/design/` | Design-mode fixtures + headless check |
 | `checks/` | Catalog / quiz / decay / quests / token-size scripts |
 | `docs/why.md` | Motivation, friction, earning the library, how a concept grows, picking a course |
+| `docs/proofstructure.md` | Named theorems, mathlib-default proofs, TypeSafe / Jev gates |
 | `docs/token-efficiency.md` | What each prompt sends |
 | `templates.md` | Sketch of debrief/quiz shapes; live instructions live in `server/agent.ts` |
 

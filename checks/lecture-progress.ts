@@ -1,5 +1,6 @@
 import {
   lectureIsComplete,
+  lecturesAllComplete,
   nextIncompleteLectureN,
   normalizeLectureStatus,
 } from "../server/lectureProgress.js";
@@ -30,6 +31,20 @@ const done = nextIncompleteLectureN([
   { n: 2, status: "complete" },
 ]);
 if (done !== null) fail("finished course has no next lecture");
+if (
+  !lecturesAllComplete(
+    [{ n: 1 }, { n: 2 }],
+    { "1": "complete", "2": "debriefed" },
+  )
+) {
+  fail("every lecture complete should close the course");
+}
+if (
+  lecturesAllComplete([{ n: 1 }, { n: 2 }], { "1": "complete" })
+) {
+  fail("a missing lecture must not close the course");
+}
+if (lecturesAllComplete([], {})) fail("an empty map is not a finished course");
 
 if (failures) throw new Error(`${failures} lecture-progress check(s) failed`);
 console.log("ok lecture progress is complete/incomplete, sequential");

@@ -28,3 +28,21 @@ export function personalSiteRoot(): string | undefined {
   const raw = process.env.PERSONAL_SITE_ROOT?.trim();
   return raw || undefined;
 }
+
+/** Host POST of a theorem *claim* to leansearch.net. Off with MATHLIB_SEARCH=0. */
+export function mathlibSearchEnabled(): boolean {
+  const raw = process.env.MATHLIB_SEARCH?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "off";
+}
+
+/** TypeSafe / Jev. Off with TYPESAFE=0. Missing key is also off. */
+export function typeSafeApiKey(): string | undefined {
+  const key = process.env.TYPESAFE_API_KEY?.trim();
+  return key || undefined;
+}
+
+export function typeSafeEnabled(): boolean {
+  const raw = process.env.TYPESAFE?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off") return false;
+  return Boolean(typeSafeApiKey());
+}

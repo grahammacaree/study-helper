@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
 import katex from "katex";
+import { splitMathEnvs } from "./texDisplay";
 
 export const Prose = memo(function Prose({
   text,
@@ -10,71 +11,181 @@ export const Prose = memo(function Prose({
 }) {
   const trimmed = tidy(text);
   if (!trimmed) return null;
-  const blocks = splitDisplayMath(trimmed);
   const nodes: ReactNode[] = [];
-  let key = 0;
   const ink = (s: string, seed = 0) => inline(s, seed, onConcept);
-  for (const block of blocks) {
-    if (block.math) {
-      nodes.push(mathNode(block.math, true, key));
-      key += 1;
-      continue;
+  parseSegments(trimmed).forEach((seg, key) => {
+    if (seg.kind === "h") {
+      const Tag = seg.level <= 2 ? "h2" : seg.level === 3 ? "h3" : "h4";
+      nodes.push(<Tag key={key}>{ink(seg.text)}</Tag>);
+      return;
     }
-    const lines = coalesceMathLines(block.text.split("\n"));
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
-      if (!line.trim()) {
-        i += 1;
-        continue;
-      }
-      const heading = /^(#{1,4})\s+(.+)$/.exec(line);
-      if (heading) {
-        const Tag = heading[1].length <= 2 ? "h2" : "h3";
-        nodes.push(<Tag key={key}>{ink(heading[2].trim())}</Tag>);
-        key += 1;
-        i += 1;
-        continue;
-      }
-      if (/^\s*[-*•]\s+/.test(line)) {
-        const items: string[] = [];
-        while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
-          items.push(lines[i].replace(/^\s*[-*•]\s+/, ""));
-          i += 1;
-        }
-        nodes.push(
-          <ul key={key}>
-            {items.map((item, n) => (
-              <li key={n}>{ink(item)}</li>
-            ))}
-          </ul>,
-        );
-        key += 1;
-        continue;
-      }
-      if (/^\s*\d+[.)]\s+/.test(line)) {
-        const items: string[] = [];
-        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
-          items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
-          i += 1;
-        }
-        nodes.push(
-          <ol key={key}>
-            {items.map((item, n) => (
-              <li key={n}>{ink(item)}</li>
-            ))}
-          </ol>,
-        );
-        key += 1;
-        continue;
-      }
-      nodes.push(<p key={key}>{ink(line.trim())}</p>);
-      key += 1;
-      i += 1;
+    if (seg.kind === "ul") {
+      nodes.push(
+        <ul key={key}>
+          {seg.items.map((item, n) => (
+            <li key={n}>{ink(item)}</li>
+          ))}
+        </ul>,
+      );
+      return;
     }
-  }
+    if (seg.kind === "ol") {
+      nodes.push(
+        <ol key={key}>
+          {seg.items.map((item, n) => (
+            <li key={n}>{ink(item)}</li>
+          ))}
+        </ol>,
+      );
+      return;
+    }
+    if (seg.kind === "math") {
+      nodes.push(mathNode(seg.tex, true, key));
+      return;
+    }
+    if (seg.kind === "proof") {
+      nodes.push(
+        <div key={key} className="proof-block">
+          <ol className="proof-steps">
+            {seg.steps.map((step, n) => {
+              const last = n === seg.steps.length - 1;
+              return (
+                <li key={n}>
+                  <span className="proof-n">{n + 1}.</span>
+                  <div className="proof-line">
+                    <div className="proof-tex">
+                      {mathNode(
+                        last ? withQed(step.tex) : step.tex,
+                        true,
+                        `${key}-${n}`,
+                        last ? "proof-qed" : undefined,
+                      )}
+                    </div>
+                    {step.crib ? (
+                      <p className="proof-crib">{ink(step.crib, key + n + 1)}</p>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>,
+      );
+      return;
+    }
+    nodes.push(<p key={key}>{ink(seg.text)}</p>);
+  });
   return <>{nodes}</>;
 }, (prev, next) => prev.text === next.text);
+
+type Seg =
+  | { kind: "h"; level: number; text: string }
+  | { kind: "ul"; items: string[] }
+  | { kind: "ol"; items: string[] }
+  | { kind: "p"; text: string }
+  | { kind: "math"; tex: string }
+  | { kind: "proof"; steps: { tex: string; crib?: string }[]; qed?: boolean };
+
+const STEP =
+  /^(\d+)[.)][ \t]*\n+\$\$([\s\S]+?)\$\$((?:\n*\*[^*\n]+\*[ \t]*)*)\n*/;
+
+function parseSegments(src: string): Seg[] {
+  const segs: Seg[] = [];
+  let rest = src.trim();
+  while (rest) {
+    rest = rest.replace(/^\n+/, "");
+    if (!rest) break;
+    const heading = /^(#{1,4})\s+(.+?)(?:\n|$)/.exec(rest);
+    if (heading) {
+      segs.push({ kind: "h", level: heading[1].length, text: heading[2].trim() });
+      rest = rest.slice(heading[0].length);
+      continue;
+    }
+    if (STEP.test(rest)) {
+      const steps: { tex: string; crib?: string }[] = [];
+      while (STEP.test(rest)) {
+        const m = STEP.exec(rest);
+        if (!m) break;
+        steps.push({ tex: m[2].trim(), crib: joinCribLine(cribLabels(m[3] ?? "")) });
+        rest = rest.slice(m[0].length);
+      }
+      rest = rest.replace(/^\n+/, "");
+      const qedMark = /^(∎|□|QED)\s*(?:\n|$)/i.exec(rest);
+      if (qedMark) rest = rest.slice(qedMark[0].length);
+      segs.push({ kind: "proof", steps, qed: true });
+      continue;
+    }
+    const math = /^\$\$([\s\S]+?)\$\$/.exec(rest);
+    if (math) {
+      segs.push({ kind: "math", tex: math[1] });
+      rest = rest.slice(math[0].length);
+      continue;
+    }
+    if (/^[-*•]\s+/.test(rest)) {
+      const block = /^(?:[-*•]\s+.+\n?)+/.exec(rest);
+      if (block) {
+        segs.push({
+          kind: "ul",
+          items: block[0]
+            .trim()
+            .split("\n")
+            .map((line) => line.replace(/^\s*[-*•]\s+/, "")),
+        });
+        rest = rest.slice(block[0].length);
+        continue;
+      }
+    }
+    if (/^\d+[.)]\s+\S/.test(rest)) {
+      const block = /^(?:\d+[.)]\s+.+\n?)+/.exec(rest);
+      if (block) {
+        segs.push({
+          kind: "ol",
+          items: block[0]
+            .trim()
+            .split("\n")
+            .map((line) => line.replace(/^\s*\d+[.)]\s+/, "")),
+        });
+        rest = rest.slice(block[0].length);
+        continue;
+      }
+    }
+    const cut = rest.search(/\n\n|\$\$|\n#{1,4}\s|\n[-*•]\s|\n\d+[.)][ \t]*\n/);
+    const take = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
+    if (take) segs.push({ kind: "p", text: take });
+    rest = cut >= 0 ? rest.slice(cut) : "";
+  }
+  return segs;
+}
+
+function cribLabels(raw: string): string[] {
+  return [...raw.matchAll(/\*([^*\n]+)\*/g)]
+    .flatMap((m) => m[1].split(/\s*;\s*/))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function joinCribLine(labels: string[]): string | undefined {
+  if (labels.length === 1 && /\sand\s/i.test(labels[0].replace(/^by\s+/i, ""))) {
+    const t = labels[0].replace(/^by\s+/i, "").trim();
+    return t ? `by ${t}` : undefined;
+  }
+  const named: string[] = [];
+  let simp = "";
+  for (const label of labels) {
+    const t = label.replace(/^by\s+/i, "").trim();
+    if (!t) continue;
+    if (/^(simplification|simplifying\b|noting\b)/i.test(t)) {
+      simp = "noting $\\sigma$ and $\\varepsilon$ as constants";
+      continue;
+    }
+    if (!named.includes(t)) named.push(t);
+  }
+  const parts = simp ? [...named, simp] : named;
+  if (!parts.length) return undefined;
+  if (parts.length === 1) return `by ${parts[0]}`;
+  if (parts.length === 2) return `by ${parts[0]} and ${parts[1]}`;
+  return `by ${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
 
 function tidy(text: string): string {
   return wrapBareTex(
@@ -136,51 +247,6 @@ function nextUnescapedDollar(text: string, from: number): number {
     return j;
   }
   return -1;
-}
-
-function oddInlineDollars(s: string): boolean {
-  let n = 0;
-  for (let i = 0; i < s.length; i += 1) {
-    if (s.startsWith("$$", i)) {
-      i += 1;
-      continue;
-    }
-    if (s[i] === "$" && s[i - 1] !== "\\") n += 1;
-  }
-  return n % 2 === 1;
-}
-
-function coalesceMathLines(lines: string[]): string[] {
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    let line = lines[i];
-    i += 1;
-    if (!line.trim()) {
-      out.push(line);
-      continue;
-    }
-    while (i < lines.length && oddInlineDollars(line) && lines[i].trim()) {
-      line = `${line} ${lines[i].trim()}`;
-      i += 1;
-    }
-    out.push(line);
-  }
-  return out;
-}
-
-function splitDisplayMath(text: string): { text: string; math?: string }[] {
-  const parts: { text: string; math?: string }[] = [];
-  const re = /\$\$([\s\S]+?)\$\$/g;
-  let last = 0;
-  for (const match of text.matchAll(re)) {
-    const at = match.index ?? 0;
-    if (at > last) parts.push({ text: text.slice(last, at) });
-    parts.push({ text: "", math: match[1] });
-    last = at + match[0].length;
-  }
-  if (last < text.length) parts.push({ text: text.slice(last) });
-  return parts.length ? parts : [{ text }];
 }
 
 function inline(
@@ -309,16 +375,60 @@ function nextSingleStar(text: string, from: number): number {
   return -1;
 }
 
-function mathNode(tex: string, display: boolean, key: string | number): ReactNode {
-  const html = katex.renderToString(tex, {
+function withQed(tex: string): string {
+  const t = tex.trim();
+  if (/\\square\s*$/.test(t) || /\\square\s*\\end\{/.test(t)) return t;
+  if (/\\end\{gathered\}\s*$/.test(t)) {
+    return t.replace(
+      /\\end\{gathered\}\s*$/,
+      "\\quad\\square\n\\end{gathered}",
+    );
+  }
+  return `${t}\\quad\\square`;
+}
+
+function displayHtml(tex: string): string {
+  return katex.renderToString(tex, {
     throwOnError: false,
-    displayMode: display,
+    displayMode: true,
+    fleqn: true,
   });
+}
+
+function mathNode(
+  tex: string,
+  display: boolean,
+  key: string | number,
+  extraClass?: string,
+): ReactNode {
+  const box = extraClass ? `tex-block ${extraClass}` : "tex-block";
+  if (display) {
+    const chunks = splitMathEnvs(tex);
+    if (chunks.length > 1) {
+      return (
+        <div key={key} className="tex-proof">
+          {chunks.map((chunk, i) => (
+            <div
+              key={i}
+              className={i === chunks.length - 1 ? box : "tex-block"}
+              dangerouslySetInnerHTML={{ __html: displayHtml(chunk) }}
+            />
+          ))}
+        </div>
+      );
+    }
+  }
+  const html = display
+    ? displayHtml(tex)
+    : katex.renderToString(tex, {
+        throwOnError: false,
+        displayMode: false,
+      });
   if (display) {
     return (
       <div
         key={key}
-        className="tex-block"
+        className={box}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );

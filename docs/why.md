@@ -18,7 +18,7 @@ It is not an exam coach, not homework police, and not a replacement for working 
 
 ## AI-assisted learning
 
-The model is allowed to **check**, **quiz**, and **crystallise**. It is not allowed to **be the study**. Host-owned files and queues exist so that a new session does not replay yesterday’s chat and so the model cannot invent the curriculum.
+The model is allowed to **check**, **quiz**, and **crystallise**. It is not allowed to **be the study**. Host-owned files and queues exist so that a new session does not replay yesterday’s chat and so the model cannot invent the curriculum. **TypeSafe / Jev** sits in front of several of those Cursor turns: a small judgment (noul or choice) instead of an essay, fail-open if Jev is unsure. Details: [proofstructure.md](proofstructure.md#what-jev-decides-so-cursor-does-not-have-to).
 
 ### Friction is the feature
 
@@ -46,6 +46,8 @@ You earned the *node* by debriefing or finishing a quest. The teaching page is a
 
 One concept id is one node, even when several courses tag it. `markov-chains` from Stat 110 and from another series is the same library page, not a child per lecture.
 
+**Grain.** Same lecture is not the same node. Split independently citable named results (LLN vs CLT, Markov vs Chebyshev, BFS vs DFS) even when the calendar pairs them — each can carry its own theorem pass, and swapping them is the mix-up. Combine faces of one object (PMF and CDF), duals of one operator (Adam’s law and Eve’s law), or a family bucket whose children are the named members (`limit-theorems` → `lln`, `clt`; `inequalities` → Markov, Chebyshev). Never name a leaf after a lecture title that is a comma-list of famous results. Host check: `fusedCitableResults` in `server/conceptShape.ts`.
+
 1. **Meet it.** A content lecture you complete names it, or a done side quest becomes it. Recap / quiz-review / “the course so far” slots do not unlock anything.
 2. **Unlock.** It appears in the tree (plus ancestors so the tree can stand). Opening it is consultation, not restudy.
 3. **Crystallise.** The first open writes `data/learner/concepts/<id>.md` in one model turn. Later visits reread that file. The body is not rewritten as a whole; reopening must not resurrect a stale example or theorem from the knowledge index.
@@ -54,7 +56,7 @@ One concept id is one node, even when several courses tag it. `markov-chains` fr
 | Pass | Lands only if | What the host stores |
 | --- | --- | --- |
 | Vocabulary | You characterised the term, not merely named it | `**term**: gloss` in your words. A bare word is dropped. |
-| Theorems | You stated the claim | **Asserted** if there is no proof sketch. **Proved** if you wrote one. A later summary that proves the same claim — another lecture, another course, even another concept row that already held that asserted claim — upgrades it. A later naming without a sketch does not downgrade a proof. |
+| Theorems | You stated the claim | **Asserted** if you only named the result. **Proved** if you named the interesting steps (the lemma, the identity, the reduction) — not a full TeX slog, and not a shrug. The page’s numbered proof **defaults to mathlib** when the hit matches that claim; your named steps are commentary. No honest hit → only the steps you named. A later summary that names those moves for the same claim upgrades it. **TypeSafe / Jev** can alias a restated claim onto the stored wording, refuse a wrong mathlib hit, and label each proof line with independent cribs (Chebyshev *and* constants, not an exclusive pick). Spec: [proofstructure.md](proofstructure.md). |
 | Examples | The case does work: a computation, a reusable model, or a special case that proves a claim | At most one working example per pass. Lecturer cartoons that only name vocabulary stay out (they belong in a gloss if anywhere). A real theorem outranks an extra example. |
 
 `knowledge.md` is the index (known / shaky, note, those passes). The teaching file is the page you read. Both stay on this computer.
@@ -63,6 +65,7 @@ One concept id is one node, even when several courses tag it. `markov-chains` fr
 
 - Write the library from a topic you have not studied
 - Invent a glossary, a proof, or a cute example so the teaching file looks full
+- Fill in proof steps he skipped
 - Upsell side quests you did not ask for
 - Grade an exam or nag about skipped psets
 - Choose the quiz queue (the host does, from tags, structure, and decay)
@@ -72,7 +75,7 @@ One concept id is one node, even when several courses tag it. `markov-chains` fr
 
 The nav is a **topic or a listing URL**, not an OCW paste box.
 
-A name already in the catalog just selects that course. A public `https` listing (OCW course home, Harvard Stat 110’s YouTube page, Caltech Learning from Data, Yale Open, a playlist page) is fetched immediately: the host writes a lecture map from the public HTML. Concept tags start empty until you care.
+A name or listing URL already in the catalog opens that course. If it was parked as `"track": "later"`, it moves onto Current. A new public `https` listing (OCW course home, Harvard Stat 110’s YouTube page, Caltech Learning from Data, Yale Open, a playlist page) is fetched immediately: the host writes a lecture map from the public HTML. Concept tags start empty until you care.
 
 Anything else — `game theory` — opens a centre-pane conversation about **freely available video lecture series**. The bar:
 
@@ -87,4 +90,4 @@ The point of the conversation is **fit**, not completeness of the internet. Dept
 
 ## Files, not chats
 
-Long-term memory is `data/learner/` and `courses/`. A new Cursor agent reads those. Session JSON is only so the UI can resume. Token discipline ([token-efficiency.md](token-efficiency.md)) is how this stays cheap enough to run **every lecture** instead of becoming a weekend chatbot.
+Long-term memory is `data/learner/` and `courses/`. A new Cursor agent reads those. Session JSON is only so the UI can resume. Token discipline ([token-efficiency.md](token-efficiency.md)) is how this stays cheap enough to run **every lecture** instead of becoming a weekend chatbot. Closing a course is host work: `index.json` moves to `previously`, and an optional `local/personal-site.ts` hook can flip the matching row on your site — title, href, and status only. A proved claim may be POSTed (claim only) to LeanSearch; the lecture summary stays on this computer.
