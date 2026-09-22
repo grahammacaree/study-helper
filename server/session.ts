@@ -37,6 +37,8 @@ import {
   ADEQUATE_TEACHBACK,
   adequateParaphrase,
   alignKnowledgeTheorems,
+  screenDebriefSlips,
+  knownAfterSlips,
   screenQuizItems,
   screenQuestTopic,
 } from "./typeSafe.js";
@@ -1462,12 +1464,17 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
   const { card, updates: rawUpdates } = await withAgent(s, (agent) =>
     runDebrief({ agent, primed: s.primed, ctx, summary }),
   );
+  const slips = await screenDebriefSlips(card.corrections);
+  card.corrections = [...slips.conceptual, ...slips.slips];
   const learner = await loadLearner();
   const aligned = await alignKnowledgeTheorems(learner.knowledge, rawUpdates);
-  const updates = await attachMathlibWriteups(aligned, {
-    writeProof: (hit, claim) =>
-      withAgent(s, (agent) => writeStandardProof({ agent, claim, hit })),
-  });
+  const updates = knownAfterSlips(
+    await attachMathlibWriteups(aligned, {
+      writeProof: (hit, claim) =>
+        withAgent(s, (agent) => writeStandardProof({ agent, claim, hit })),
+    }),
+    slips,
+  );
   advancePriming(s.primed);
   s.debrief = card;
   s.offeredQuests = card.offeredQuests;
@@ -1489,16 +1496,23 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
     text: card.summaryNote,
     debrief: card,
   });
-  if (card.corrections.length) {
+  if (slips.conceptual.length) {
     s.phase = "correction_gate";
-    s.pendingCorrection = card.corrections[0];
+    s.pendingCorrection = slips.conceptual[0];
     push(s, {
       role: "assistant",
       kind: "status",
-      text: `Worth locking down (optional — Finish anytime, or leave it shaky):\n- ${card.corrections[0]}`,
+      text: `Worth locking down (optional — Finish anytime, or leave it shaky):\n- ${slips.conceptual[0]}`,
     });
   } else {
     s.phase = "debrief";
+    if (slips.slips.length) {
+      push(s, {
+        role: "assistant",
+        kind: "status",
+        text: "Noted a sign or arithmetic slip in the write-up. Concept stays known.",
+      });
+    }
   }
   await persist(s);
   await queueRewrite(

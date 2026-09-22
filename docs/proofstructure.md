@@ -96,6 +96,7 @@ One POST to TypeSafe System One (`jev-latest`) per gate, host-owned combine, fai
 | Quest title | noul (is this a study idea?) + choice (already in the library?) | Reject trivia, alias a known node, or skip `publish_quest_topic` |
 | Teach-back | noul (adequate restatement, not a question) | Skip the teach-back agent |
 | Quiz item | noul calc / tests-this-concept / keyed | Drop the item; fail-open if the bank would empty |
+| Debrief correction | noul (spelling noise vs sign/arithmetic slip vs conceptual) | Drop one-off spelling typos; keep maths slips on the card; skip the shaky gate and store **known** if every kept correction is a slip |
 | Restated theorem | choice onto a stored claim | Merge keys so WLLN does not mint a second block |
 | Proof-line cribs | **noul per named trick**, per step | Fold surviving labels into one `by … and …` line |
 

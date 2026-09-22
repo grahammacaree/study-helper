@@ -100,6 +100,31 @@ export function decideAdequate(restates?: number, question?: number): boolean {
   return noulYes(restates) && noulNo(question);
 }
 
+export function splitDebriefCorrections(
+  corrections: string[],
+  slip: Array<number | undefined>,
+  noise: Array<number | undefined> = [],
+): { slips: string[]; conceptual: string[] } {
+  const slips: string[] = [];
+  const conceptual: string[] = [];
+  for (let i = 0; i < corrections.length; i += 1) {
+    if (noulYes(noise[i])) continue;
+    if (noulYes(slip[i])) slips.push(corrections[i]);
+    else conceptual.push(corrections[i]);
+  }
+  return { slips, conceptual };
+}
+
+export function knownAfterSlips(
+  updates: KnowledgeEntry[],
+  split: { slips: string[]; conceptual: string[] },
+): KnowledgeEntry[] {
+  if (split.conceptual.length || !split.slips.length) return updates;
+  return updates.map((row) =>
+    row.status === "shaky" ? { ...row, status: "known" as const } : row,
+  );
+}
+
 export function decideDropCalc(
   items: QuizItem[],
   calc: Array<number | undefined>,
@@ -327,6 +352,43 @@ export async function adequateParaphrase(
   );
   if (!answers) return false;
   return decideAdequate(noulOf(answers, "restates"), noulOf(answers, "question"));
+}
+
+export async function screenDebriefSlips(
+  corrections: string[],
+): Promise<{ slips: string[]; conceptual: string[] }> {
+  if (!corrections.length) return { slips: [], conceptual: [] };
+  const questions: Record<string, unknown> = {};
+  corrections.forEach((_, i) => {
+    questions[`noise_${i}`] = {
+      type: "noul",
+      instructions: `Is \`corrections[${i}]\` only an ordinary English spelling/typing typo in the notes (e.g. propsition → proposition) — not maths, not a conceptual mistake?`,
+      criteria: {
+        true: "One-off misspelling of a non-math word; the intended word is obvious",
+        false:
+          "Sign/arithmetic slip, wrong definition/direction, missing move, or the same misspelling is consistent and egregious enough to obscure meaning",
+      },
+    };
+    questions[`slip_${i}`] = {
+      type: "noul",
+      instructions: `Is \`corrections[${i}]\` only a sign error or arithmetic slip in the notes — not an inverted definition, backwards implication, missing proof idea, or spelling typo?`,
+      criteria: {
+        true: "Sign flip, dropped minus, 2 vs 1/2, algebra arithmetic, or a chat-typo of a number",
+        false:
+          "Wrong definition, wrong direction, missing lemma/move, a conceptual mix-up, or only a spelling typo",
+      },
+    };
+  });
+  const answers = await systemOne(
+    { corrections: corrections.map((c) => c.slice(0, 400)) },
+    questions,
+  );
+  if (!answers) return { slips: [], conceptual: corrections };
+  return splitDebriefCorrections(
+    corrections,
+    corrections.map((_, i) => noulOf(answers, `slip_${i}`)),
+    corrections.map((_, i) => noulOf(answers, `noise_${i}`)),
+  );
 }
 
 export async function screenQuizItems(

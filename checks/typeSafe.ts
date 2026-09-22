@@ -8,8 +8,10 @@ import {
   decideScreenQuiz,
   decideStepCribs,
   formatStepCrib,
+  knownAfterSlips,
   noulNo,
   noulYes,
+  splitDebriefCorrections,
 } from "../server/typeSafe.js";
 import type { QuizItem } from "../server/types.js";
 
@@ -152,6 +154,52 @@ if (twoTricks.join(";") !== "Chebyshev's inequality;simplification") {
 }
 if (formatStepCrib(twoTricks) !== "by Chebyshev's inequality and noting $\\sigma$ and $\\varepsilon$ as constants") {
   fail("several tricks should fold into one by-line");
+}
+
+const split = splitDebriefCorrections(
+  ["Sign of the Green's function is minus, not plus.", "Reduction goes the other way."],
+  [0.85, 0.2],
+);
+if (split.slips.length !== 1 || !split.slips[0].includes("Green")) {
+  fail("a peaked slip noul should peel arithmetic off the gate");
+}
+if (split.conceptual.length !== 1 || !split.conceptual[0].includes("Reduction")) {
+  fail("a conceptual correction should stay on the gate");
+}
+const quiet = splitDebriefCorrections(
+  [
+    "Transcription: “propsition” → proposition.",
+    "Sign of the Green's function is minus, not plus.",
+  ],
+  [0.2, 0.85],
+  [0.9, 0.1],
+);
+if (quiet.slips.length !== 1 || !quiet.slips[0].includes("Green")) {
+  fail("spelling noise should drop; arithmetic slips should stay");
+}
+if (quiet.conceptual.length) {
+  fail("a one-off spelling typo should not reach the correction gate");
+}
+const coerced = knownAfterSlips(
+  [{ id: "green", status: "shaky", note: "sign" }],
+  { slips: split.slips, conceptual: [] },
+);
+if (coerced[0].status !== "known") {
+  fail("arithmetic-only slips should not leave the concept shaky");
+}
+if (
+  knownAfterSlips([{ id: "green", status: "shaky", note: "direction" }], split)[0]
+    .status !== "shaky"
+) {
+  fail("a conceptual correction should still be allowed to mark shaky");
+}
+if (
+  knownAfterSlips([{ id: "green", status: "shaky", note: "unsure" }], {
+    slips: [],
+    conceptual: [],
+  })[0].status !== "shaky"
+) {
+  fail("no-slip debriefs should not coerce known");
 }
 
 if (failures) throw new Error(`${failures} TypeSafe check(s) failed`);

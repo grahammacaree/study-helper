@@ -143,11 +143,11 @@ function contextBlock(opts: {
 export const DEBRIEF_INSTRUCTIONS = [
   "Graham wrote a summary of the lecture. Check conceptual mistakes against standard knowledge for these tags.",
   "Not an exam. Do not score or nag about skipped homework. Call publish_debrief once. Chat text is ignored. Use $...$ for maths.",
-  "corrections: 0–5 real inverted definitions, or a proof he claimed without naming a move. Empty if sound. Do not invent.",
+  "corrections: 0–5 inverted definitions, a proof claimed without a named move, or a sign/arithmetic slip in the typed notes (flipped sign, dropped minus, 2 vs 1/2). Empty if sound. Do not invent. Do not flag ordinary spelling typos (propsition → proposition) unless the same misspelling is consistent and egregious enough to obscure the maths.",
   "gaps: 0–5 structural pieces that matter, not a completeness rubric.",
   "summaryNote: 2–4 sentences, encouraging, structural.",
   "offeredQuests: only if his summary explicitly asks to chase a side topic (title + why). Empty otherwise. Do not upsell detours.",
-  "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Wrong important idea → shaky.",
+  "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Inverted definition, backwards implication, or missing move → shaky. A sign flip or other arithmetic slip in the chat transcription → known (still list that slip in corrections). Spelling typos stay off the card.",
   "vocab: 0–8 {term, gloss} pairs from THIS summary. gloss is a one-line definition in his words (or a close paraphrase of what he wrote). Skip a word he named but did not characterize. Empty if this was not a vocabulary pass. Do not invent a glossary.",
   "theorems: 0–4 {claim, proof} from THIS summary, preferred over extra examples when both exist. claim is the actual statement (existence, uniqueness, detailed balance ⇒ stationary, …). proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field.",
   "example: at most one per concept, from THIS summary. Keep it only if it carries a method or theorem (a computation, a reusable model, a special case that proves a claim). Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
