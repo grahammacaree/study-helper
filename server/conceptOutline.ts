@@ -1,3 +1,17 @@
+/** Host-owned. Keep in lockstep with `web/src/components/GeneratingOutline.tsx`. */
+export const QUEST_BEATS = [
+  "Getting the idea on the table",
+  "When you'd actually use this",
+  "The mix-up that usually bites",
+];
+
+/** Host-owned. Keep in lockstep with `web/src/components/GeneratingOutline.tsx`. */
+export const FIND_BEATS = [
+  "Looking for a public lecture series",
+  "Checking listings you already have",
+  "Picking something you can watch",
+];
+
 /** Host-side beats shown while a missing teaching file is written. */
 export function seedConceptOutline(
   name: string,

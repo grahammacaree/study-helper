@@ -98,15 +98,17 @@ try {
         note: llnPrior.note,
         theorems: [
           {
+            title: "Weak law of large numbers",
             claim:
-              "Weak law of large numbers: for i.i.d. $X_i$ with finite mean $\\mu$ and finite variance $\\sigma^2$, $\\bar X_n \\to \\mu$ in probability.",
+              "For i.i.d. $X_i$ with finite mean $\\mu$ and finite variance $\\sigma^2$, $\\bar X_n \\to \\mu$ in probability.",
             status: "proved",
             proof:
               "Chebyshev: $\\operatorname{Var}(\\bar X_n)=\\sigma^2/n$, so $\\mathbb{P}(|\\bar X_n-\\mu|\\ge\\varepsilon)\\le \\sigma^2/(n\\varepsilon^2)\\to 0$.",
           },
           {
+            title: "Strong law of large numbers",
             claim:
-              "Strong law of large numbers: for i.i.d. integrable $X_i$ with mean $\\mu$, $\\bar{X}_n \\to \\mu$ almost surely.",
+              "For i.i.d. integrable $X_i$ with mean $\\mu$, $\\bar{X}_n \\to \\mu$ almost surely.",
             status: "proved",
             proof:
               "Truncate to finite-variance copies, Chebyshev on the $n^2$ subsequence, Borel–Cantelli for almost-sure subsequence convergence, Kronecker lemma to fill the gaps.",

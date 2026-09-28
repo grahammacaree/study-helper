@@ -13,11 +13,13 @@ export const Prose = memo(function Prose({
   if (!trimmed) return null;
   const nodes: ReactNode[] = [];
   const ink = (s: string, seed = 0) => inline(s, seed, onConcept);
-  parseSegments(trimmed).forEach((seg, key) => {
+  const segs = parseSegments(trimmed);
+  for (let key = 0; key < segs.length; key++) {
+    const seg = segs[key];
     if (seg.kind === "h") {
       const Tag = seg.level <= 2 ? "h2" : seg.level === 3 ? "h3" : "h4";
       nodes.push(<Tag key={key}>{ink(seg.text)}</Tag>);
-      return;
+      continue;
     }
     if (seg.kind === "ul") {
       nodes.push(
@@ -27,7 +29,7 @@ export const Prose = memo(function Prose({
           ))}
         </ul>,
       );
-      return;
+      continue;
     }
     if (seg.kind === "ol") {
       nodes.push(
@@ -37,11 +39,37 @@ export const Prose = memo(function Prose({
           ))}
         </ol>,
       );
-      return;
+      continue;
+    }
+    if (seg.kind === "theorem") {
+      const items: Extract<Seg, { kind: "theorem" }>[] = [];
+      while (key < segs.length && segs[key].kind === "theorem") {
+        items.push(segs[key] as Extract<Seg, { kind: "theorem" }>);
+        key += 1;
+      }
+      key -= 1;
+      nodes.push(
+        <div key={key} className="theorem-sheet" role="list">
+          {items.map((th, n) => (
+            <div
+              key={n}
+              className="theorem-block"
+              data-status={th.status}
+              role="listitem"
+            >
+              <p className="theorem-stmt">{ink(th.claim, key + n)}</p>
+              {th.moves ? (
+                <p className="theorem-moves">{ink(th.moves, key + n + 1)}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>,
+      );
+      continue;
     }
     if (seg.kind === "math") {
       nodes.push(mathNode(seg.tex, true, key));
-      return;
+      continue;
     }
     if (seg.kind === "proof") {
       nodes.push(
@@ -71,10 +99,10 @@ export const Prose = memo(function Prose({
           </ol>
         </div>,
       );
-      return;
+      continue;
     }
     nodes.push(<p key={key}>{ink(seg.text)}</p>);
-  });
+  }
   return <>{nodes}</>;
 }, (prev, next) => prev.text === next.text);
 
@@ -83,6 +111,7 @@ type Seg =
   | { kind: "ul"; items: string[] }
   | { kind: "ol"; items: string[] }
   | { kind: "p"; text: string }
+  | { kind: "theorem"; status: "asserted" | "proved"; claim: string; moves?: string }
   | { kind: "math"; tex: string }
   | { kind: "proof"; steps: { tex: string; crib?: string }[]; qed?: boolean };
 
@@ -121,40 +150,106 @@ function parseSegments(src: string): Seg[] {
       rest = rest.slice(math[0].length);
       continue;
     }
-    if (/^[-*•]\s+/.test(rest)) {
-      const block = /^(?:[-*•]\s+.+\n?)+/.exec(rest);
-      if (block) {
-        segs.push({
-          kind: "ul",
-          items: block[0]
-            .trim()
-            .split("\n")
-            .map((line) => line.replace(/^\s*[-*•]\s+/, "")),
-        });
-        rest = rest.slice(block[0].length);
+    if (/^[ \t]{0,3}[-*•]\s+/.test(rest)) {
+      const taken = takeList(rest, /^[ \t]{0,3}[-*•][ \t]+/);
+      if (taken) {
+        segs.push({ kind: "ul", items: taken.items });
+        rest = taken.rest;
         continue;
       }
     }
-    if (/^\d+[.)]\s+\S/.test(rest)) {
-      const block = /^(?:\d+[.)]\s+.+\n?)+/.exec(rest);
-      if (block) {
-        segs.push({
-          kind: "ol",
-          items: block[0]
-            .trim()
-            .split("\n")
-            .map((line) => line.replace(/^\s*\d+[.)]\s+/, "")),
-        });
-        rest = rest.slice(block[0].length);
+    if (/^[ \t]{0,3}\d+[.)]\s+\S/.test(rest)) {
+      const taken = takeList(rest, /^[ \t]{0,3}\d+[.)][ \t]+/);
+      if (taken) {
+        segs.push({ kind: "ol", items: taken.items });
+        rest = taken.rest;
         continue;
       }
     }
-    const cut = rest.search(/\n\n|\$\$|\n#{1,4}\s|\n[-*•]\s|\n\d+[.)][ \t]*\n/);
+    const thmOpen =
+      /^\*\*(asserted|proved)\.\*\*\s+/i.exec(rest) ??
+      /^(asserted|proved)\.\s+/i.exec(rest);
+    if (thmOpen) {
+      const status = thmOpen[1].toLowerCase() === "proved" ? "proved" : "asserted";
+      rest = rest.slice(thmOpen[0].length);
+      const cut = rest.search(
+        /\n\n|\$\$|\n#{1,4}\s|\n[ \t]{0,3}[-*•]\s|\n\*\*(?:asserted|proved)\./i,
+      );
+      const claim = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
+      rest = cut >= 0 ? rest.slice(cut) : "";
+      rest = rest.replace(/^\n+/, "");
+      let moves: string | undefined;
+      const mv = /^Moves:\s+/i.exec(rest);
+      if (mv) {
+        rest = rest.slice(mv[0].length);
+        const mcut = rest.search(
+          /\n\n|\$\$|\n#{1,4}\s|\n\*\*(?:asserted|proved)\./i,
+        );
+        moves = (mcut >= 0 ? rest.slice(0, mcut) : rest).trim() || undefined;
+        rest = mcut >= 0 ? rest.slice(mcut) : "";
+      }
+      if (claim) segs.push({ kind: "theorem", status, claim, moves });
+      continue;
+    }
+    const cut = rest.search(
+      /\n\n|\$\$|\n#{1,4}\s|\n[ \t]{0,3}[-*•]\s|\n[ \t]{0,3}\d+[.)][ \t]*\n/,
+    );
     const take = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
     if (take) segs.push({ kind: "p", text: take });
     rest = cut >= 0 ? rest.slice(cut) : "";
   }
   return segs;
+}
+
+/** Consecutive list items, including wrapped lines and blank lines between them. */
+function takeList(
+  src: string,
+  marker: RegExp,
+): { items: string[]; rest: string } | undefined {
+  if (!marker.test(src)) return undefined;
+  const items: string[] = [];
+  let rest = src;
+  outer: while (marker.test(rest)) {
+    rest = rest.replace(marker, "");
+    const parts: string[] = [];
+    while (true) {
+      const nl = rest.indexOf("\n");
+      const line = (nl >= 0 ? rest.slice(0, nl) : rest).trimEnd();
+      parts.push(line);
+      if (nl < 0) {
+        rest = "";
+        items.push(parts.join(" ").trim());
+        break outer;
+      }
+      rest = rest.slice(nl + 1);
+      if (
+        marker.test(rest) ||
+        /^[ \t]{0,3}(?:\d+[.)]|[-*•])[ \t]+\S/.test(rest) ||
+        /^#{1,4}\s/.test(rest) ||
+        /^\$\$/.test(rest)
+      ) {
+        items.push(parts.join(" ").trim());
+        continue outer;
+      }
+      const nextLine = rest.split("\n")[0] ?? "";
+      if (/^\s*$/.test(nextLine)) {
+        const peek = rest.replace(/^\s*\n*/, "");
+        if (
+          marker.test(peek) ||
+          /^[ \t]{0,3}(?:\d+[.)]|[-*•])[ \t]+\S/.test(peek)
+        ) {
+          rest = peek;
+          items.push(parts.join(" ").trim());
+          continue outer;
+        }
+        items.push(parts.join(" ").trim());
+        rest = `\n${rest}`;
+        break outer;
+      }
+    }
+  }
+  if (!items.length) return undefined;
+  return { items, rest };
 }
 
 function cribLabels(raw: string): string[] {
@@ -228,6 +323,18 @@ function wrapBareTex(text: string): string {
         continue;
       }
     }
+    const mdLink = /^\[[^\]]*\]\([^)]+\)/.exec(text.slice(i));
+    if (mdLink) {
+      out += mdLink[0];
+      i += mdLink[0].length;
+      continue;
+    }
+    const urlEnd = endOfHttpUrl(text, i);
+    if (urlEnd > i) {
+      out += text.slice(i, urlEnd);
+      i = urlEnd;
+      continue;
+    }
     const m = BARE_TEX.exec(text.slice(i));
     if (m) {
       out += `$${m[0]}$`;
@@ -238,6 +345,13 @@ function wrapBareTex(text: string): string {
     i += 1;
   }
   return out;
+}
+
+function endOfHttpUrl(text: string, i: number): number {
+  if (!/^https?:\/\//i.test(text.slice(i))) return -1;
+  let j = i;
+  while (j < text.length && !/[\s<>\[\]()]/.test(text[j] ?? "")) j += 1;
+  return j;
 }
 
 function nextUnescapedDollar(text: string, from: number): number {
@@ -285,6 +399,15 @@ function inline(
       i += 2;
       continue;
     }
+    if (text[i] === "$" && text[i + 1] !== "$") {
+      const end = nextUnescapedDollar(text, i + 1);
+      if (end > i + 1) {
+        nodes.push(mathNode(text.slice(i + 1, end), false, `${seed}-m-${k}`));
+        k += 1;
+        i = end + 1;
+        continue;
+      }
+    }
     if (text[i] === "*" && text[i + 1] !== "*") {
       const end = nextSingleStar(text, i + 1);
       if (end > i + 1) {
@@ -300,15 +423,6 @@ function inline(
       nodes.push("*");
       i += 1;
       continue;
-    }
-    if (text[i] === "$" && text[i + 1] !== "$") {
-      const end = nextUnescapedDollar(text, i + 1);
-      if (end > i + 1) {
-        nodes.push(mathNode(text.slice(i + 1, end), false, `${seed}-m-${k}`));
-        k += 1;
-        i = end + 1;
-        continue;
-      }
     }
     if (text[i] === "[") {
       const concept = /^\[([^\]]+)\]\(concept:([a-z0-9][a-z0-9-]{0,63})\)/i.exec(
@@ -401,6 +515,7 @@ function mathNode(
   key: string | number,
   extraClass?: string,
 ): ReactNode {
+  tex = tex.replace(/\\\*/g, "*");
   const box = extraClass ? `tex-block ${extraClass}` : "tex-block";
   if (display) {
     const chunks = splitMathEnvs(tex);

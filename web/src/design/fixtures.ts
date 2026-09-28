@@ -1,4 +1,5 @@
 import { seedConceptOutline } from "../conceptOutline";
+import { QUEST_BEATS } from "../components/GeneratingOutline";
 import type {
   AuthStatus,
   CatalogPayload,
@@ -406,6 +407,66 @@ export const SCENARIOS: {
     }),
   },
   {
+    id: "quest-gen",
+    label: "Side quest generating",
+    note: "Opening a quest shows Working and outline beats",
+    busy: true,
+    session: session({
+      kind: "quest",
+      phase: "quest",
+      questTitle: "Separation of variables",
+      busy: true,
+      workingOn: "Opening the quest…",
+      generatingOutline: QUEST_BEATS,
+      messages: [
+        {
+          id: "opening-quest",
+          role: "assistant",
+          kind: "status",
+          text: "Opening the quest…",
+          at: 1,
+        },
+      ],
+    }),
+  },
+  {
+    id: "quest-quiz-gen",
+    label: "Side quest writing quiz",
+    note: "After teach-back, Working is the question, not opening the quest",
+    busy: true,
+    session: session({
+      kind: "quest",
+      phase: "quest_gate",
+      questTitle: "Separation of variables",
+      busy: true,
+      workingOn: "Writing a question…",
+      questTeachbackOk: true,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          kind: "text",
+          text: "Separation of variables rewrites $y' = f(x)g(y)$ so each variable sits on one side.",
+          at: 1,
+        },
+        {
+          id: "m2",
+          role: "user",
+          kind: "text",
+          text: "You separate, then integrate, and add back $g(y)=0$ equilibria.",
+          at: 2,
+        },
+        {
+          id: "m3",
+          role: "assistant",
+          kind: "teachback",
+          text: "That's the idea.",
+          at: 3,
+        },
+      ],
+    }),
+  },
+  {
     id: "concept",
     label: "Concept",
     note: "Stored teaching in the chat pane; Ask only; Quiz for non-roots",
@@ -420,7 +481,7 @@ export const SCENARIOS: {
           id: "m1",
           role: "assistant",
           kind: "text",
-          text: "A hash family maps keys into $\\{0,\\ldots,m-1\\}$. Reach for it when you want expected $O(1)$ under a load factor $\\alpha = n/m$.\n\n## From lectures\n- Intro to Algorithms L4: Hashing\n\n## See also\n- [Algorithms](concept:algorithms)\n- [Comparison sorting](concept:sorting)",
+          text: "A hash family maps keys into $\\{0,\\ldots,m-1\\}$. Reach for it when you want expected $O(1)$ under a load factor $\\alpha = n/m$.\n\n## Examples\n- Worked: with $n=12$ keys and $m=16$ slots, $\\alpha=3/4$ — chaining stays short in expectation under uniform hashing.\n\n## From lectures\n- Intro to Algorithms L4: Hashing\n\n## See also\n- [Algorithms](concept:algorithms)\n- [Comparison sorting](concept:sorting)",
           at: 1,
         },
       ],

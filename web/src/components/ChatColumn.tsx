@@ -6,7 +6,7 @@ import {
 import { PENDING_SESSION_ID } from "../sessionStore";
 import type { AuthStatus, ChatMessage, SessionSnapshot } from "../types";
 import { CommandBox, questHeaderActions, type ChipAction } from "./CommandBox";
-import { DEBRIEF_BEATS, useCyclingBeat } from "./GeneratingOutline";
+import { DEBRIEF_BEATS, FIND_BEATS, useCyclingBeat } from "./GeneratingOutline";
 import { Transcript } from "./Transcript";
 
 export function ChatColumn({
@@ -33,7 +33,7 @@ export function ChatColumn({
   onConcept?: (id: string) => void;
 }) {
   const statusError = error || session?.error;
-  const working = busy || session?.busy;
+  const working = Boolean(busy || session?.busy);
   const sessionReady = Boolean(
     session && session.id !== PENDING_SESSION_ID,
   );
@@ -76,15 +76,24 @@ export function ChatColumn({
     .filter((msg) => msg.kind !== "text" || msg.text.trim());
   const viewMessages = messagesForConcept(session, messages, working);
   const pinnedMessages = pinConceptTeaching(session, viewMessages);
-  const outline =
-    working && session?.kind === "concept"
+  const outline = working
+    ? session?.generatingOutline?.length
       ? session.generatingOutline
-      : working && session?.kind === "debrief"
+      : session?.kind === "debrief"
         ? DEBRIEF_BEATS
-        : undefined;
+        : session?.kind === "find"
+          ? FIND_BEATS
+          : undefined
+    : undefined;
   const beatAt = useCyclingBeat(outline, Boolean(outline?.length));
   const outlineLabel =
-    session?.kind === "debrief" ? "Checking the summary" : "Writing the teaching note";
+    session?.kind === "debrief"
+      ? "Checking the summary"
+      : session?.kind === "quest"
+        ? "Opening the quest"
+        : session?.kind === "find"
+          ? "Looking for a lecture series"
+          : "Writing the teaching note";
   const headerActions = questHeaderActions(session);
 
   return (

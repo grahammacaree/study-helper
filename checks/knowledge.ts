@@ -1,4 +1,5 @@
 import {
+  asExample,
   applyKnowledgePasses,
   isProofSketch,
   mergeTeachingPasses,
@@ -46,9 +47,11 @@ const withThm = mergeTeachingPasses("A chain.", {
   ],
   examples: ["random walk on an undirected graph"],
 });
-if (!withThm.includes("## Theorems")) fail("theorem heading missing");
-if (withThm.indexOf("## Theorems") > withThm.indexOf("## Examples")) {
-  fail("theorems should sit above examples");
+if (withThm.includes("## Theorems")) {
+  fail("unnamed claims must not mint a Theorems section");
+}
+if (!withThm.includes("## Examples") || !withThm.includes("reversible")) {
+  fail("unnamed theorem-shaped rows should demote to examples");
 }
 
 const again = mergeTeachingPasses(merged, {
@@ -137,7 +140,70 @@ if (reopened.includes("Four abstract chains")) {
   fail("reopening stored teaching should not resurrect a cartoon example");
 }
 
+const junkFold = applyKnowledgePasses("A chain.", {
+  id: "markov-chains",
+  status: "known",
+  note: "n",
+  example: "[object Object]",
+});
+if (junkFold.includes("[object Object]") || junkFold.includes("## Examples")) {
+  fail("a coerced object must not land as an example");
+}
+if (asExample({ text: "PageRank as a chain" }) !== "PageRank as a chain") {
+  fail("an example object with text should become that sentence");
+}
+if (asExample({ foo: 1 })) fail("an empty example object should drop");
+
+const namedThm = mergeTeachingPasses("Averages converge.", {
+  theorems: [
+    {
+      title: "Weak law of large numbers",
+      claim: "Sample means converge in probability.",
+      status: "asserted",
+    },
+  ],
+  examples: ["Chebyshev bound on a finite-variance mean"],
+});
+if (!namedThm.includes("## Theorems")) fail("named theorems need a Theorems section");
+if (!namedThm.includes("### Weak law of large numbers")) {
+  fail("named theorems should keep their title as a heading");
+}
+if (namedThm.indexOf("## Theorems") > namedThm.indexOf("## Examples")) {
+  fail("theorems should sit above examples");
+}
+
 const thmRound = upsertKnowledge(
+  [],
+  [
+    {
+      id: "lln",
+      status: "known",
+      note: "n",
+      theorems: [
+        {
+          title: "Weak law of large numbers",
+          claim: "Sample means converge in probability to $\\mu$.",
+          status: "asserted",
+        },
+      ],
+    },
+  ],
+);
+const thmBack = parseKnowledge(renderKnowledge(thmRound)).find(
+  (e) => e.id === "lln",
+);
+if (
+  !thmBack?.theorems?.some(
+    (t) =>
+      t.title === "Weak law of large numbers" &&
+      t.status === "asserted" &&
+      /converge in probability/i.test(t.claim),
+  )
+) {
+  fail("asserted named theorems should round-trip on the knowledge row");
+}
+
+const demoted = upsertKnowledge(
   [],
   [
     {
@@ -152,79 +218,96 @@ const thmRound = upsertKnowledge(
       ],
     },
   ],
-);
-const thmBack = parseKnowledge(renderKnowledge(thmRound)).find(
-  (e) => e.id === "markov-chains",
-);
-if (
-  !thmBack?.theorems?.some(
-    (t) => t.status === "asserted" && /unique stationary/i.test(t.claim),
-  )
-) {
-  fail("asserted theorems should round-trip on the knowledge row");
+).find((e) => e.id === "markov-chains");
+if (demoted?.theorems?.length) {
+  fail("untitled claims must not stay under theorems");
+}
+if (!/unique stationary/i.test(demoted?.example ?? "")) {
+  fail("untitled theorem rows should demote to the example field");
 }
 
 const provedLater = upsertKnowledge(thmRound, [
   {
-    id: "markov-matrices",
+    id: "lln",
     status: "known",
     note: "other course",
     theorems: [
       {
-        claim: "Finite irreducible chain: unique stationary $s$ exists.",
+        title: "Weak law of large numbers",
+        claim: "Sample means converge in probability to $\\mu$.",
         status: "proved",
-        proof: "$s_i = 1/r_i$ and uniqueness from irreducibility.",
+        proof: "Chebyshev on the variance of the average.",
       },
     ],
   },
 ]);
 const noDowngrade = upsertKnowledge(provedLater, [
   {
-    id: "markov-matrices",
+    id: "lln",
     status: "known",
     note: "named again without a sketch",
     theorems: [
       {
-        claim: "Finite irreducible chain: unique stationary $s$ exists.",
+        title: "Weak law of large numbers",
+        claim: "Sample means converge in probability to $\\mu$.",
         status: "asserted",
       },
     ],
   },
-]).find((e) => e.id === "markov-matrices");
+]).find((e) => e.id === "lln");
 if (noDowngrade?.theorems?.[0]?.status !== "proved" || !noDowngrade.theorems[0].proof) {
   fail("a later asserted pass must not drop an existing proof");
 }
 
-const spread = spreadTheoremProofs(provedLater, [
-  {
-    id: "markov-matrices",
-    status: "known",
-    note: "n",
-    theorems: [
-      {
-        claim: "Finite irreducible chain: unique stationary $s$ exists.",
-        status: "proved",
-        proof: "$s_i = 1/r_i$ and uniqueness from irreducibility.",
-      },
-    ],
-  },
-]);
-const other = spread.list.find((e) => e.id === "markov-chains")?.theorems?.[0];
+const spread = spreadTheoremProofs(
+  [
+    ...provedLater,
+    {
+      id: "limit-theorems",
+      status: "known",
+      note: "family",
+      theorems: [
+        {
+          title: "Weak law of large numbers",
+          claim: "Sample means converge in probability to $\\mu$.",
+          status: "asserted",
+        },
+      ],
+    },
+  ],
+  [
+    {
+      id: "lln",
+      status: "known",
+      note: "n",
+      theorems: [
+        {
+          title: "Weak law of large numbers",
+          claim: "Sample means converge in probability to $\\mu$.",
+          status: "proved",
+          proof: "Chebyshev on the variance of the average.",
+        },
+      ],
+    },
+  ],
+);
+const other = spread.list.find((e) => e.id === "limit-theorems")?.theorems?.[0];
 if (other?.status !== "proved" || !other.proof) {
   fail("a proof on another concept should upgrade a matching asserted claim");
 }
-if (!spread.changedIds.includes("markov-chains")) {
+if (!spread.changedIds.includes("limit-theorems")) {
   fail("spread should name the other concept whose teaching needs a fold");
 }
 
-const parsedThm = parseTeachingPasses(withThm).theorems[0];
-if (parsedThm?.status !== "proved" || !parsedThm.proof) {
-  fail("a teaching block with Moves: should parse as proved");
+const parsedEx = parseTeachingPasses(withThm).examples;
+if (!parsedEx.some((row) => /reversible/i.test(row) && /stationary/i.test(row))) {
+  fail("a demoted teaching block should land in examples");
 }
 
 const stdBlock = mergeTeachingPasses("A mean.", {
   theorems: [
     {
+      title: "Strong law of large numbers",
       claim: "Sample means converge almost surely.",
       status: "proved",
       proof: "Borel–Cantelli on a subsequence.",
@@ -234,13 +317,18 @@ const stdBlock = mergeTeachingPasses("A mean.", {
     },
   ],
 });
-if (stdBlock.includes("ProbabilityTheory.strong_law_ae") && !stdBlock.includes("`ProbabilityTheory.strong_law_ae`")) {
-  fail("lemma names must sit in backticks so underscores are not TeX");
+if (stdBlock.includes("ProbabilityTheory.strong_law_ae")) {
+  fail("mathlib sourcing should stay off the teaching page");
 }
-if (!stdBlock.includes("**Standard proof**")) fail("standard proof heading missing");
+if (!stdBlock.includes("#### Proof") && !stdBlock.includes("### Strong law")) {
+  fail("named proved theorems should keep a titled proof block");
+}
 if (!stdBlock.includes("$$")) fail("standard proof should keep display TeX");
 const stdParsed = parseTeachingPasses(stdBlock).theorems[0];
-if (!stdParsed?.canonical?.includes("$$") || stdParsed.lemma !== "ProbabilityTheory.strong_law_ae") {
+if (
+  stdParsed?.title !== "Strong law of large numbers" ||
+  !stdParsed?.canonical?.includes("$$")
+) {
   fail("standard TeX proof should round-trip on the teaching file");
 }
 const stdKnow = parseKnowledge(
@@ -268,19 +356,20 @@ const shrugged = upsertKnowledge(
   [],
   [
     {
-      id: "markov-chains",
+      id: "lln",
       status: "known",
       note: "n",
       theorems: [
         {
-          claim: "Finite irreducible chain: unique stationary $s$ exists.",
+          title: "Weak law of large numbers",
+          claim: "Sample means converge in probability to $\\mu$.",
           status: "proved",
           proof: "uniqueness",
         },
       ],
     },
   ],
-).find((e) => e.id === "markov-chains");
+).find((e) => e.id === "lln");
 if (shrugged?.theorems?.[0]?.status !== "asserted" || shrugged.theorems[0].proof) {
   fail("a shrug must not mark the claim proved");
 }

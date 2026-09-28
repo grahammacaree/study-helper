@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { projectRoot } from "./env.js";
+import { clipForAgent } from "./promptBudget.js";
 import { readAllSessions } from "./store.js";
 import type {
   ConceptTheorem,
@@ -116,13 +117,12 @@ export function renderKnowledge(entries: KnowledgeEntry[]): string {
     }
     for (const e of groups[status]) {
       parts.push(`- \`${e.id}\` — ${e.note || "(no note)"}`);
-      if (e.example) parts.push(`  - example: ${e.example}`);
+      if (asExample(e.example)) parts.push(`  - example: ${e.example}`);
       if (e.theorems?.length) {
         for (const th of e.theorems) {
+          if (!th.title?.trim()) continue;
           parts.push(
-            `  - theorem: (${th.status}) ${
-              th.title ? `${th.title}: ${th.claim}` : th.claim
-            }`,
+            `  - theorem: (${th.status}) ${th.title}: ${th.claim}`,
           );
           if (th.proof) parts.push(`    proof: ${th.proof}`);
           if (th.lemma) parts.push(`    lemma: ${th.lemma}`);
@@ -158,7 +158,8 @@ export function parseKnowledge(markdown: string): KnowledgeEntry[] {
     }
     const example = /^\s+-\s+example:\s+(.*)$/.exec(line);
     if (example && entries.length) {
-      entries[entries.length - 1].example = example[1].trim();
+      const t = asExample(example[1]);
+      if (t) entries[entries.length - 1].example = t;
       continue;
     }
     const theorem = /^\s+-\s+theorem:\s+(?:\((asserted|proved)\)\s+)?(.*)$/i.exec(
@@ -167,7 +168,15 @@ export function parseKnowledge(markdown: string): KnowledgeEntry[] {
     if (theorem && entries.length) {
       const cur = entries[entries.length - 1];
       const parsed = asStoredTheorem(theorem[1], theorem[2]);
-      if (parsed) cur.theorems = [...(cur.theorems ?? []), parsed];
+      if (parsed) {
+        cur.theorems = [...(cur.theorems ?? []), parsed];
+      } else {
+        const loose = normalizeTheorem({ claim: theorem[2] });
+        if (loose) {
+          const ex = formatTheoremExample(loose);
+          if (!asExample(cur.example)) cur.example = ex;
+        }
+      }
       continue;
     }
     const proofLine = /^\s+proof:\s+(.*)$/.exec(line);
@@ -444,8 +453,12 @@ export function mergeTeachingPasses(
 ): string {
   const prior = parseTeachingPasses(text);
   const vocab = mergeVocab(prior.vocab, pass.vocab ?? []);
-  const theorems = mergeTheorems(prior.theorems, pass.theorems ?? [], true);
-  const examples = mergeTerms(prior.examples, pass.examples ?? []);
+  const split = splitNamedTheorems(pass.theorems ?? []);
+  const theorems = mergeTheorems(prior.theorems, split.named, true);
+  const examples = mergeTerms(prior.examples, [
+    ...(pass.examples ?? []),
+    ...split.examples,
+  ]);
   const stripped = stripTeachingPasses(text);
   const seeAt = stripped.search(/\n## See also\b/i);
   const head = (seeAt >= 0 ? stripped.slice(0, seeAt) : stripped).trim();
@@ -483,7 +496,9 @@ export function parseTeachingPasses(text: string): {
     theoremBuf = [];
     if (!block) return;
     const parsed = parseTheoremBlock(block);
-    if (parsed) theorems.push(parsed);
+    if (!parsed) return;
+    if (parsed.title?.trim()) theorems.push(parsed);
+    else examples.push(formatTheoremExample(parsed));
   };
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
@@ -582,7 +597,7 @@ function mergeVocab(prior: string[], next: string[]): string[] {
 function mergeTerms(prior: string[], next: string[]): string[] {
   const byKey = new Map<string, string>();
   for (const row of [...prior, ...next]) {
-    const term = row.replace(/^[-*•]\s+/, "").trim();
+    const term = usableExample(row);
     if (!term) continue;
     const key = term
       .replace(/[*_`]/g, "")
@@ -595,16 +610,88 @@ function mergeTerms(prior: string[], next: string[]): string[] {
   return [...byKey.values()].slice(0, 12);
 }
 
+/** Coerce a debrief `example` (string or leftover object) into a working sentence. */
+export function asExample(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") return usableExample(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const t = asExample(item);
+      if (t) return t;
+    }
+    return undefined;
+  }
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const key of [
+      "text",
+      "body",
+      "example",
+      "case",
+      "note",
+      "content",
+      "description",
+      "working",
+    ]) {
+      const t = asExample(o[key]);
+      if (t) return t;
+    }
+  }
+  return undefined;
+}
+
+function usableExample(raw: string | undefined): string | undefined {
+  const t = raw?.replace(/^[-*•]\s+/, "").trim() ?? "";
+  if (!t || /^\[object\s/i.test(t)) return undefined;
+  return t;
+}
+
 function asStoredTheorem(
   statusRaw: string | undefined,
   claimRaw: string,
 ): ConceptTheorem | undefined {
-  const parsed = normalizeTheorem({ claim: claimRaw });
-  if (!parsed) return undefined;
+  const { title, claim } = splitTitleClaim(claimRaw);
+  const parsed = normalizeTheorem({ title, claim });
+  if (!parsed?.title) return undefined;
   if (statusRaw?.toLowerCase() === "proved" && !parsed.proof) {
     return { ...parsed, status: "proved" };
   }
   return parsed;
+}
+
+/** Turn an untitled claim/proof into an Examples bullet. */
+export function formatTheoremExample(
+  th: Pick<ConceptTheorem, "claim" | "proof"> & { title?: string },
+): string {
+  const claim = th.claim.trim();
+  const proof = th.proof?.trim();
+  if (proof) return `${claim} Proof: ${proof}`.slice(0, 800);
+  return claim.slice(0, 800);
+}
+
+function splitTitleClaim(raw: string): { title?: string; claim: string } {
+  const t = raw.trim();
+  const m = /^([^:\n$]{2,80}):\s+(\S[\s\S]*)$/.exec(t);
+  if (!m) return { claim: t };
+  const title = m[1].trim();
+  const claim = m[2].trim();
+  if (!title || !claim) return { claim: t };
+  return { title, claim };
+}
+
+function splitNamedTheorems(
+  rows: Array<string | ConceptTheorem>,
+): { named: ConceptTheorem[]; examples: string[] } {
+  const named: ConceptTheorem[] = [];
+  const examples: string[] = [];
+  for (const row of rows) {
+    const parsed =
+      typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
+    if (!parsed) continue;
+    if (parsed.title?.trim()) named.push(parsed);
+    else examples.push(formatTheoremExample(parsed));
+  }
+  return { named, examples };
 }
 
 export function parseTheoremBullet(raw: string): ConceptTheorem | undefined {
@@ -613,7 +700,15 @@ export function parseTheoremBullet(raw: string): ConceptTheorem | undefined {
     /^\*\*(asserted|proved)\.\*\*\s+([\s\S]+)$/i.exec(t) ??
     /^(asserted|proved)\.\s+([\s\S]+)$/i.exec(t);
   const body = marked ? marked[2].trim() : t;
-  const parsed = normalizeTheorem({ claim: body });
+  const headed = /^###\s+/.test(body) ? parseTheoremBlock(body) : undefined;
+  if (headed) {
+    if (marked?.[1].toLowerCase() === "proved" && !headed.proof && !headed.canonical) {
+      return { ...headed, status: "proved" };
+    }
+    return headed;
+  }
+  const { title, claim } = splitTitleClaim(body);
+  const parsed = normalizeTheorem({ title, claim });
   if (!parsed) return undefined;
   if (marked?.[1].toLowerCase() === "proved" && !parsed.proof) {
     return { ...parsed, status: "proved" };
@@ -639,12 +734,20 @@ export function parseTheoremBlock(raw: string): ConceptTheorem | undefined {
     }
     rest = rest.replace(/\n*From mathlib `[^`]+`\.?\s*$/i, "").trim();
     rest = rest.replace(/^\*\*Claim\.\*\*\s*/i, "").trim();
+    const moveAt = /(?:^|\n)(?:Moves|Proof):\s+/i.exec(rest);
+    let claim = rest;
+    let proof: string | undefined;
+    if (moveAt && moveAt.index != null) {
+      claim = rest.slice(0, moveAt.index).trim();
+      proof = rest.slice(moveAt.index + moveAt[0].length).trim();
+    }
     return normalizeTheorem({
       title: name,
-      claim: rest || name,
+      claim: claim || name,
+      proof,
       canonical,
       lemma,
-      status: canonical ? "proved" : "asserted",
+      status: canonical || proof ? "proved" : "asserted",
     });
   }
   if (!t.includes("\n")) return parseTheoremBullet(t);
@@ -671,33 +774,27 @@ export function parseTheoremBlock(raw: string): ConceptTheorem | undefined {
     claim = main.slice(0, moveAt.index).trim();
     proof = main.slice(moveAt.index + moveAt[0].length).trim();
   }
+  // Untitled blocks are examples, not Theorems — still parse so the host can demote.
   return normalizeTheorem({ claim, proof, canonical, lemma });
 }
 
 function formatTheoremBlock(th: ConceptTheorem): string {
   const title = th.title?.trim();
-  if (title) {
-    const bits = [`### ${title}`, th.claim.trim()];
-    const writeup = th.canonical?.trim();
-    if (writeup) {
-      bits.push(
-        /^#{3,4}\s+Proof\b/i.test(writeup)
-          ? writeup
-          : `#### Proof\n\n${writeup}`,
-      );
-    }
-    return bits.join("\n\n");
+  if (!title) {
+    // Should not reach disk — unnamed claims are examples. Defensive fallback.
+    return formatTheoremExample(th);
   }
-  const tag = th.status === "proved" ? "Proved" : "Asserted";
-  const bits = [`**${tag}.** ${th.claim}`];
-  const proof = th.proof?.trim();
-  if (proof) bits.push(`Moves: ${proof}`);
-  const standard = th.canonical?.trim();
-  if (standard) {
-    const lemma = th.lemma?.trim()
-      ? ` from mathlib \`${th.lemma.trim()}\``
-      : "";
-    bits.push(`**Standard proof**${lemma}.`, standard);
+  const bits = [`### ${title}`, th.claim.trim()];
+  const writeup = th.canonical?.trim();
+  if (writeup) {
+    bits.push(
+      /^#{3,4}\s+Proof\b/i.test(writeup)
+        ? writeup
+        : `#### Proof\n\n${writeup}`,
+    );
+  } else {
+    const proof = th.proof?.trim();
+    if (proof) bits.push(`Moves: ${proof}`);
   }
   return bits.join("\n\n");
 }
@@ -786,12 +883,12 @@ function mergeTheorems(
   const byKey = new Map<string, ConceptTheorem>();
   for (const row of prior) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
-    if (!parsed) continue;
+    if (!parsed?.title?.trim()) continue;
     byKey.set(theoremKey(parsed.claim, parsed.title), parsed);
   }
   for (const row of next) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
-    if (!parsed) continue;
+    if (!parsed?.title?.trim()) continue;
     const key = theoremKey(parsed.claim, parsed.title);
     const old = byKey.get(key);
     if (old) byKey.set(key, combineTheorems(old, parsed));
@@ -869,10 +966,11 @@ function knowledgePasses(entry: KnowledgeEntry | undefined): {
   examples?: string[];
 } {
   if (!entry) return {};
+  const example = asExample(entry.example);
   return {
     vocab: entry.vocab,
     theorems: entry.theorems,
-    examples: entry.example ? [entry.example] : [],
+    examples: example ? [example] : [],
   };
 }
 
@@ -1009,7 +1107,7 @@ export function teachingSlice(
   for (const id of ids) {
     const text = teachings[id]?.trim();
     if (!text) continue;
-    const clipped = text.length <= maxEach ? text : `${text.slice(0, maxEach)}\n…[truncated]`;
+    const clipped = clipForAgent(text, maxEach, "teaching");
     parts.push(`## \`${id}\`\n${clipped}`);
   }
   return parts.join("\n\n");
@@ -1022,12 +1120,17 @@ export function upsertKnowledge(
   const map = new Map(list.map((e) => [e.id, e]));
   for (const u of updates) {
     const prior = map.get(u.id);
+    const split = splitNamedTheorems(u.theorems ?? []);
+    const demotedExample = split.examples[0];
     map.set(u.id, {
       ...prior,
       ...u,
-      example: u.example?.trim() || prior?.example,
+      example:
+        asExample(u.example) ||
+        asExample(demotedExample) ||
+        asExample(prior?.example),
       vocab: mergeVocab(prior?.vocab ?? [], u.vocab ?? []),
-      theorems: mergeTheorems(prior?.theorems ?? [], u.theorems ?? [], true),
+      theorems: mergeTheorems(prior?.theorems ?? [], split.named, true),
     });
   }
   return [...map.values()];
@@ -1059,6 +1162,27 @@ export function recordQuiz(
       thin: prior.thin + (adequate ? 0 : 1),
     },
   };
+}
+
+export function matchOpenQuest(
+  quests: SideQuest[],
+  title: string,
+): SideQuest | undefined {
+  const want = foldQuestTitle(title);
+  if (!want) return undefined;
+  return quests.find(
+    (q) =>
+      (q.status === "open" || q.status === "parked") &&
+      foldQuestTitle(q.title) === want,
+  );
+}
+
+function foldQuestTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export function addQuest(

@@ -90,6 +90,25 @@ export function relatedConcepts(
   return ids.slice(0, 12).map((cid) => ({ id: cid, name: concepts[cid].name }));
 }
 
+export function relatedUnlocked(
+  concepts: Record<string, ConceptDef>,
+  id: string,
+  unlocked: Set<string>,
+): { id: string; name: string }[] {
+  return relatedConcepts(concepts, id).filter((row) => unlocked.has(row.id));
+}
+
+/** Keep wiki links only for nodes already on the lecture map. */
+export function keepUnlockedConceptLinks(
+  text: string,
+  unlocked: Set<string>,
+): string {
+  return text.replace(
+    /\[([^\]]+)\]\(concept:([a-z0-9][a-z0-9-]{0,63})\)/gi,
+    (full, label: string, cid: string) => (unlocked.has(cid) ? full : label),
+  );
+}
+
 export function lectureOf(
   catalog: Catalog,
   courseId: string,

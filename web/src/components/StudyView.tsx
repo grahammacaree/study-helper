@@ -63,6 +63,7 @@ export function StudyView({
         onInit={actions.onInitCourse}
         initBusy={initBusy}
         busy={busy}
+        workingOn={initBusy ? "Adding the course…" : undefined}
         error={error}
         auth={auth}
         sideQuests={catalog?.openQuests ?? []}
@@ -89,6 +90,7 @@ export function StudyView({
           courseId={courseId}
           lectureN={lectureN}
           concepts={catalog?.concepts}
+          initBusy={initBusy}
           onLecture={actions.onLecture}
           onStart={actions.onStart}
           onConcept={actions.onConcept}

@@ -2,6 +2,29 @@
 
 Host fills these shapes. Do not add extra sections.
 
+## Concept teaching page (host-owned sections)
+
+The model writes the body. The host later appends:
+
+```markdown
+## Vocabulary
+- **term**: gloss in his words
+
+## Theorems
+### Weak law of large numbers
+
+[claim — named library results only]
+
+#### Proof
+
+[numbered TeX when proved + mathlib hit]
+
+## Examples
+- [worked method / unnamed proof — not a cartoon that only names vocab]
+```
+
+**Examples** means a computation, reusable model, or unnamed claim/proof from the summary. Lecturer sketches that only introduce vocabulary stay out (or in a gloss).
+
 ## Debrief card
 
 ```markdown

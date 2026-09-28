@@ -478,6 +478,34 @@ a {
   margin: 0.25rem 0 0.45rem;
 }
 
+.theorem-sheet {
+  margin: 0.35rem 0 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.bubble h2 + .theorem-sheet,
+.bubble h3 + .theorem-sheet,
+.main-column h2 + .theorem-sheet,
+.main-column h3 + .theorem-sheet {
+  margin-top: 0.2rem;
+}
+
+.theorem-block {
+  margin: 0;
+}
+
+.theorem-block .theorem-stmt {
+  margin: 0;
+}
+
+.theorem-block .theorem-moves {
+  margin: 0.15rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+}
+
 .bubble ul,
 .bubble ol,
 .inspect-prose ul,

@@ -12,7 +12,9 @@ import {
 } from "./sessionStore";
 import { looksLikeCourseUrl, matchExistingCourse } from "./courseUrl";
 import { nextIncompleteLectureN } from "./lectureProgress";
+import { FIND_BEATS, QUEST_BEATS } from "./components/GeneratingOutline";
 import { relatedNamesFor, seedConceptOutline } from "./conceptOutline";
+import { unlockedConceptIds } from "./library";
 import type {
   AuthStatus,
   CatalogPayload,
@@ -76,14 +78,28 @@ export function App() {
     if (!session?.id || session.id === PENDING_SESSION_ID) return;
     if (!busy && !session.busy) return;
     const id = session.id;
+    const conceptId = session.conceptId;
     const timer = window.setInterval(() => {
       void api
         .get(id, { lite: true })
-        .then(setSession)
+        .then((snap) => {
+          setSession((cur) => {
+            if (!cur || cur.id !== id) return cur;
+            if (
+              cur.kind === "concept" &&
+              conceptId &&
+              snap.conceptId &&
+              snap.conceptId !== conceptId
+            ) {
+              return cur;
+            }
+            return snap;
+          });
+        })
         .catch(() => undefined);
-    }, session.generatingOutline?.length ? 500 : 1500);
+    }, 500);
     return () => window.clearInterval(timer);
-  }, [busy, session?.id, session?.busy, Boolean(session?.generatingOutline?.length)]);
+  }, [busy, session?.id, session?.busy, session?.conceptId]);
 
   useEffect(() => {
     if (session || !catalog || !courseId) return;
@@ -237,14 +253,39 @@ export function App() {
         onNewQuest: (title) => {
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid) return;
+          const want = foldQuestTitle(title);
+          const existing = catalog?.openQuests?.find(
+            (q) => foldQuestTitle(q.title) === want,
+          );
+          if (
+            session?.kind === "quest" &&
+            foldQuestTitle(session.questTitle ?? "") === want &&
+            (session.busy || busy)
+          ) {
+            return;
+          }
+          const prevId = session?.id;
+          if (prevId && prevId !== PENDING_SESSION_ID) {
+            void api.cancel(prevId).catch(() => undefined);
+          }
+          setSession(
+            pendingQuestSession({
+              catalog,
+              courseId: cid,
+              title: existing?.title ?? title,
+              inspect: session?.inspect,
+            }),
+          );
           void run((signal) =>
             createSession(
-              {
-                kind: "quest",
-                courseId: cid,
-                lectureN: lectureN ?? undefined,
-                questTitle: title,
-              },
+              existing
+                ? { kind: "quest", courseId: cid, questId: existing.id }
+                : {
+                    kind: "quest",
+                    courseId: cid,
+                    lectureN: lectureN ?? undefined,
+                    questTitle: title,
+                  },
               signal,
             ),
           );
@@ -252,6 +293,7 @@ export function App() {
         onInitCourse: (text) => {
           const topic = text.trim();
           if (!topic) return;
+          if (initBusy || busy) return;
           const hit = catalog
             ? matchExistingCourse(catalog.courses, topic)
             : undefined;
@@ -313,6 +355,12 @@ export function App() {
         onConcept: (conceptId) => {
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid || !catalog?.concepts[conceptId]) return;
+          const unlocked = unlockedConceptIds(
+            catalog.courses,
+            catalog.concepts,
+            catalog.questConceptIds ?? [],
+          );
+          if (!unlocked.has(conceptId)) return;
           if (
             session?.kind === "concept" &&
             session.conceptId === conceptId &&
@@ -393,7 +441,55 @@ function pendingFindSession(opts: {
     offeredCourses: [],
     busy: true,
     workingOn: "Looking for lecture series…",
+    generatingOutline: FIND_BEATS,
   };
+}
+
+function pendingQuestSession(opts: {
+  catalog: CatalogPayload | null;
+  courseId: string;
+  title: string;
+  inspect?: InspectPayload;
+}): SessionSnapshot {
+  return {
+    id: PENDING_SESSION_ID,
+    kind: "quest",
+    phase: "quest",
+    courseId: opts.courseId,
+    questTitle: opts.title,
+    quizQueue: [],
+    coveredConcepts: [],
+    inspect: opts.inspect ?? {
+      courseId: opts.courseId,
+      courseTitle: opts.title,
+      courseBlurb: "",
+      knowledgeSlice: "",
+      lectureSummary: "",
+      sideQuests: opts.catalog?.openQuests ?? [],
+    },
+    messages: [
+      {
+        id: "opening-quest",
+        role: "assistant",
+        kind: "status",
+        text: "Opening the quest…",
+        at: Date.now(),
+      },
+    ],
+    offeredQuests: [],
+    offeredCourses: [],
+    busy: true,
+    workingOn: "Opening the quest…",
+    generatingOutline: QUEST_BEATS,
+  };
+}
+
+function foldQuestTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function inspectFallback(

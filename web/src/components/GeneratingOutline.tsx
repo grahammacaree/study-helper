@@ -11,6 +11,20 @@ export const DEBRIEF_BEATS = [
   "Seeing how this sits on the tags",
 ];
 
+/** Host-owned. Keep in lockstep with `server/conceptOutline.ts`. */
+export const QUEST_BEATS = [
+  "Getting the idea on the table",
+  "When you'd actually use this",
+  "The mix-up that usually bites",
+];
+
+/** Host-owned. Keep in lockstep with `server/conceptOutline.ts`. */
+export const FIND_BEATS = [
+  "Looking for a public lecture series",
+  "Checking listings you already have",
+  "Picking something you can watch",
+];
+
 export function useCyclingBeat(
   beats: string[] | undefined,
   enabled: boolean,

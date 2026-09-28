@@ -51,7 +51,10 @@ export interface ConceptDef {
 export type TheoremStatus = "asserted" | "proved";
 
 export interface ConceptTheorem {
-  /** Display name, e.g. Weak law of large numbers. */
+  /**
+   * Explicit library name (Weak law of large numbers, Bayes' theorem).
+   * Required on anything stored under Theorems — unnamed claims are examples.
+   */
   title?: string;
   claim: string;
   status: TheoremStatus;

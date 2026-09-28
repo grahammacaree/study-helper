@@ -105,9 +105,11 @@ export function extractLeanDecl(src: string, lemma: string): string | undefined 
   );
   const body = (stop >= 0 ? rest.slice(0, found.index - start + found[0].length + stop) : rest).trim();
   if (!body || body.length < 40) return undefined;
-  return body.length <= LEAN_SNIPPET
+  // Keep a larger raw declaration; prompt assembly folds then budgets to CLIP.lean.
+  const cap = LEAN_SNIPPET * 3;
+  return body.length <= cap
     ? body
-    : `${body.slice(0, LEAN_SNIPPET)}\n-- [truncated]`;
+    : `${body.slice(0, cap)}\n-- [truncated]`;
 }
 
 export function needsStandardWriteup(canonical: string | undefined): boolean {

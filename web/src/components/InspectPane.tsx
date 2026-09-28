@@ -218,6 +218,7 @@ export function CourseNav({
   onInit,
   initBusy,
   busy,
+  workingOn,
   error,
   auth,
   sideQuests = [],
@@ -231,6 +232,7 @@ export function CourseNav({
   onInit: (url: string) => void;
   initBusy?: boolean;
   busy?: boolean;
+  workingOn?: string;
   error?: string | null;
   auth?: AuthStatus | null;
   sideQuests?: SideQuest[];
@@ -241,6 +243,7 @@ export function CourseNav({
   const [url, setUrl] = useState("");
   const [questTitle, setQuestTitle] = useState("");
   const [adding, setAdding] = useState<"course" | "quest">("course");
+  const locked = Boolean(busy || initBusy);
   const current = courses.filter((c) => (c.track ?? "currently") === "currently");
   const previous = courses.filter((c) => c.track === "previously");
 
@@ -306,9 +309,11 @@ export function CourseNav({
         className="add-item"
         onSubmit={(e) => {
           e.preventDefault();
+          if (locked) return;
           if (adding === "quest") {
             if (!questTitle.trim()) return;
             onNewQuest?.(questTitle.trim());
+            setQuestTitle("");
             return;
           }
           if (!url.trim()) return;
@@ -357,7 +362,7 @@ export function CourseNav({
                 value={questTitle}
                 placeholder="Concept"
                 aria-label="Quest concept"
-                disabled={busy}
+                disabled={locked}
                 onChange={(e) => setQuestTitle(e.target.value)}
               />
             ) : (
@@ -366,7 +371,7 @@ export function CourseNav({
                 value={url}
                 placeholder="Subject"
                 aria-label="Course subject or URL"
-                disabled={initBusy || busy}
+                disabled={locked}
                 onChange={(e) => setUrl(e.target.value)}
               />
             )}
@@ -374,17 +379,19 @@ export function CourseNav({
               type="submit"
               className="add-item-go"
               disabled={
-                busy ||
-                (adding === "quest"
-                  ? !questTitle.trim()
-                  : initBusy || !url.trim())
+                locked ||
+                (adding === "quest" ? !questTitle.trim() : !url.trim())
               }
               aria-label={adding === "quest" ? "Add side quest" : "Add course"}
             >
               <Octicon name="chevron-right" />
             </button>
           </div>
-          {error ? (
+          {workingOn ? (
+            <p className="status working" role="status">
+              {workingOn}
+            </p>
+          ) : error ? (
             <p className="status error" role="alert">
               {error}
             </p>
@@ -405,6 +412,7 @@ export function CourseMap({
   courseId,
   lectureN,
   concepts = {},
+  initBusy,
   onLecture,
   onStart,
   onConcept,
@@ -413,6 +421,7 @@ export function CourseMap({
   courseId: string | null;
   lectureN: number | null;
   concepts?: Record<string, ConceptDef>;
+  initBusy?: boolean;
   onLecture: (n: number) => void;
   onStart: (kind: "debrief" | "quiz") => void;
   onConcept?: (id: string) => void;
@@ -443,6 +452,11 @@ export function CourseMap({
             </div>
           ) : null}
         </div>
+        {initBusy ? (
+          <p className="status working" role="status">
+            Adding the course…
+          </p>
+        ) : null}
       </header>
       {course && (
         <div className="file-inspect-body">
@@ -493,7 +507,10 @@ export function CourseMap({
                       className={rowClass}
                       data-lecture-state={state}
                       aria-current={lectureN === lec.n ? "true" : undefined}
-                      onClick={() => onLecture(lec.n)}
+                      onClick={() => {
+                        onLecture(lec.n);
+                        onStart("debrief");
+                      }}
                     >
                       {body}
                     </button>

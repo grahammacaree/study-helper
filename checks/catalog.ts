@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadCatalog, relatedConcepts } from "../server/catalog.js";
+import { loadCatalog, relatedConcepts, relatedUnlocked } from "../server/catalog.js";
 import {
   fusedCitableResults,
   isReviewLectureTitle,
@@ -117,6 +117,9 @@ if (!lec29?.conceptIds.includes("lln") || !lec29.conceptIds.includes("clt")) {
 
 if (!relatedConcepts(catalog.concepts, "poisson").some((r) => r.id === "discrete-named")) {
   fail("relatedConcepts should include the parent");
+}
+if (relatedUnlocked(catalog.concepts, "poisson", new Set()).length) {
+  fail("relatedUnlocked should hide catalog neighbors that are not on the map");
 }
 
 const learningSources = coursesForConcept(catalog, "statistical-learning");

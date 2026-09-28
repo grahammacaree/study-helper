@@ -6,6 +6,12 @@ A large part of that layout is **TypeSafe**, and specifically **Jev** (TypeSafe�
 
 ---
 
+## Theorems vs examples
+
+**Theorems** is only for **explicitly named** results — the kind of thing mathlib (or a textbook index) would list under a proper name: Weak law of large numbers, Bayes’ theorem, Cauchy–Schwarz, Chapman–Kolmogorov. The host requires a `title` on every theorem row. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are **Examples**, even when they carry a proof sketch.
+
+---
+
 ## Asserted vs proved
 
 A named theorem (or law) is **asserted** or **proved**.
@@ -31,7 +37,7 @@ Never invent steps you skipped. A shrug (`obvious`, `uniqueness`, `by definition
 
 The claim is what we **store**, **merge** across lectures, **send to LeanSearch**, and **show as the result**. Mixing two claims is how WLLN gets an Etemadi Standard.
 
-**Display.** The theorem’s **name** is the heading (Weak law of large numbers, Strong law of large numbers, Central limit theorem). Directly under it is the **claim**: a short English sentence of what the result actually asserts (who the $X_i$ are, the mode of convergence, what they converge to), then one display equation. That block is the statement, not a leftover named-move label. Do not put `You named: …` on the claim. Do not leave the reader with only `i.i.d., finite variance` and a symbol. Do not print `From mathlib ProbabilityTheory.…` on the teaching page (the lemma can live on the knowledge row for search).
+**Display.** The theorem’s **name** is the heading (Weak law of large numbers, Strong law of large numbers, Central limit theorem). Directly under it is the **claim**: a short English sentence of what the result actually asserts (who the $X_i$ are, the mode of convergence, what they converge to), then one display equation. That block is the statement, not a leftover named-move label. Do not print `Asserted` / `Proved` — asserted is the claim alone; proved tucks the named moves under it until a mathlib write-up lands, then the numbered proof. Do not put `You named: …` on the claim. Do not leave the reader with only `i.i.d., finite variance` and a symbol. Do not print `From mathlib ProbabilityTheory.…` on the teaching page (the lemma can live on the knowledge row for search).
 
 **Readable.** Spell out the assertion. The weak law is that the average of a large number of independent random observations converges in probability to the expected population value when the observations are i.i.d. with finite variance — not merely $\bar X_n \xrightarrow{\mathrm{P}} \mu$. Keep the display as the compact form of that sentence. Do not invent a mode the summary did not name.
 

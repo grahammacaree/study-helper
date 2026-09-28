@@ -28,7 +28,7 @@ const courses = [
   { id: "learning-from-data", title: "Learning from Data", instructors: "", sourceUrl: "https://work.caltech.edu/telecourse.html" },
   {
     id: "math-for-cs-6042",
-    title: "Mathematics for Computer Science",
+    title: "Mathematics for CS",
     instructors: "",
     sourceUrl: "https://ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-fall-2010/",
     track: "later" as const,

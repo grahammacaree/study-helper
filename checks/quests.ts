@@ -1,4 +1,4 @@
-import { parseQuests, renderQuests, formatConceptTeaching, isSafeConceptFileId } from "../server/learner.js";
+import { parseQuests, renderQuests, formatConceptTeaching, isSafeConceptFileId, matchOpenQuest } from "../server/learner.js";
 import { conceptsFromDoneQuests, matchExistingConcept, slugConceptId } from "../server/questConcept.js";
 import { loadCatalog } from "../server/catalog.js";
 import {
@@ -76,6 +76,22 @@ if (!fenced[0]?.notes.includes("## open")) {
 
 if (questPaneTitle("Universal hashing") !== "Side Quest: Universal Hashing") {
   fail(`pane title ${questPaneTitle("Universal hashing")}`);
+}
+
+const duped = [
+  {
+    id: "q-one",
+    title: "Separation of Variables",
+    status: "open" as const,
+    source: "user" as const,
+    notes: "",
+  },
+];
+if (matchOpenQuest(duped, "separation of variables")?.id !== "q-one") {
+  fail("an open quest with the same title should be reused");
+}
+if (matchOpenQuest(duped, "Laplace transforms")) {
+  fail("a different title is not the same quest");
 }
 if (!isQuestDisclaimer("Side quest: X. This does not skip the lecture map.")) {
   fail("disclaimer detector");

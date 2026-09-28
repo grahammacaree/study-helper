@@ -279,6 +279,36 @@ for (const s of SCENARIOS) {
     }
   }
 
+  if (s.id === "quest-gen") {
+    if (!html.includes("Side Quest: Separation Of Variables")) {
+      fail(s.id, "generating quest pane should take the title immediately");
+    }
+    if (!html.includes("Getting the idea on the table")) {
+      fail(s.id, "generating quest should show an outline beat");
+    }
+    if (!html.includes("Opening the quest")) {
+      fail(s.id, "the pane should say the quest is opening");
+    }
+    if (!html.includes("Working")) {
+      fail(s.id, "composer should say Working while the quest opens");
+    }
+  }
+
+  if (s.id === "quest-quiz-gen") {
+    if (html.includes("Opening the quest")) {
+      fail(s.id, "quiz write should not say the quest is opening");
+    }
+    if (html.includes("Getting the idea on the table")) {
+      fail(s.id, "quiz write should not reuse the opening outline");
+    }
+    if (!html.includes("Writing a question")) {
+      fail(s.id, "composer should say it is writing a question");
+    }
+    if (!html.includes("the idea")) {
+      fail(s.id, "the teach-back verdict should stay on screen");
+    }
+  }
+
   if (s.id === "quest") {
     if (!html.includes("Side Quest: Universal Hashing")) {
       fail(s.id, "quest pane title should be Side Quest: Title Case");
@@ -399,9 +429,43 @@ const linear = rankSymbols("Linear algebra linear-algebra", []);
 if (linear.findIndex((s) => s.tex === "\\mathbb{R}") > 8) {
   fail("prose", "linear algebra should float the reals");
 }
+const olLoose = proseHtml(
+  "1. First item, still going.\n\n2. Second item.\n\nNot a fourth item.",
+);
+const olIndented = proseHtml(
+  "**What is easy to get backwards:**\n\n  1. First.\n\n  2. Second.\n\nNot a fourth item.",
+);
+if ((olIndented.match(/<ol/g) ?? []).length !== 1) {
+  fail("prose", "indented numbered items should still be one list");
+}
+if ((olLoose.match(/<ol/g) ?? []).length !== 1) {
+  fail("prose", "blank lines should not restart a numbered list");
+}
+if ((olLoose.match(/<li/g) ?? []).length !== 2) {
+  fail("prose", "a numbered list should keep consecutive items");
+}
+if (!olLoose.includes("Not a fourth item")) {
+  fail("prose", "text after a list should not be swallowed");
+}
+const starMath = proseHtml("Any constant $y = y^*$ stays an equilibrium.");
+if (starMath.includes("<em")) fail("prose", "stars inside $...$ are TeX, not italics");
+if (!starMath.includes("katex")) fail("prose", "$y^*$ should render as TeX");
+const escapedStar = proseHtml("Any constant $y = y^\\*$ with $g(y^\\*) = 0$.");
+if (escapedStar.includes("\\*")) {
+  fail("prose", "escaped stars inside math should render as a true asterisk");
+}
 const wiki = proseHtml("[Hashing](concept:hashing)");
 if (!wiki.includes("#concept/hashing")) fail("prose", "concept: links should be in-app anchors");
 if (!wiki.includes("Hashing")) fail("prose", "concept: link label missing");
+const wikiUrl = proseHtml(
+  "[Wikipedia — Separable differential equation](https://en.wikipedia.org/wiki/Separable_differential_equation)",
+);
+if (!wikiUrl.includes("https://en.wikipedia.org/wiki/Separable_differential_equation")) {
+  fail("prose", "underscores in Wikipedia URLs must not become TeX");
+}
+if (wikiUrl.includes("$Separable")) {
+  fail("prose", "Wikipedia href must not wrap path segments in dollars");
+}
 const paren = proseHtml("see \\(x^2\\) here");
 if (!paren.includes("katex")) fail("prose", "\\(...\\) should render as TeX");
 const bare = proseHtml("T=Z^{2} on top");
@@ -420,6 +484,36 @@ if (lemmaHtml.includes("katex") && lemmaHtml.includes("strong_")) {
 }
 if (!lemmaHtml.includes("ProbabilityTheory.strong_law_ae")) {
   fail("prose", "lemma name should remain readable");
+}
+const thmHtml = proseHtml(
+  "**Asserted.** Through a point $(x_0,y_0)$ the solution is unique.\n\n**Proved.** Explicit Euler steps along the field.\n\nMoves: One forward tangent step.",
+);
+if (thmHtml.includes("<strong>Asserted") || thmHtml.includes("<strong>Proved")) {
+  fail("prose", "theorem status should not lead as bold");
+}
+if ((thmHtml.match(/theorem-block/g) ?? []).length !== 2) {
+  fail("prose", "each tagged theorem should be its own block");
+}
+if (thmHtml.includes("theorem-status") || /<(p|span)[^>]*>\s*(asserted|proved)\s*<\/(p|span)>/i.test(thmHtml)) {
+  fail("prose", "asserted/proved should not print as visible labels");
+}
+if (!thmHtml.includes("theorem-sheet")) {
+  fail("prose", "consecutive theorems should share one sheet");
+}
+if (!thmHtml.includes("unique") || !thmHtml.includes("Explicit Euler")) {
+  fail("prose", "the claims should lead the theorem blocks");
+}
+if (thmHtml.includes("Moves:")) {
+  fail("prose", "Moves: should not stay as a lead-in");
+}
+if (!thmHtml.includes("theorem-moves") || !thmHtml.includes("tangent")) {
+  fail("prose", "named moves should sit under the claim, quieter");
+}
+if ((thmHtml.match(/theorem-moves/g) ?? []).length !== 1) {
+  fail("prose", "an asserted claim should have no moves crib");
+}
+if (thmHtml.indexOf("unique") > thmHtml.indexOf("Explicit Euler")) {
+  fail("prose", "theorems should keep source order");
 }
 const stackedHtml = proseHtml(
   "$$\n\\begin{gathered}a\\end{gathered}\\begin{gathered}b\\end{gathered}\n$$",

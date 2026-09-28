@@ -22,11 +22,12 @@ import {
   expandConceptIds,
   lectureOf,
   loadCatalog,
-  relatedConcepts,
+  keepUnlockedConceptLinks,
+  relatedUnlocked,
   type Catalog,
 } from "./catalog.js";
 import { isReviewLectureTitle, isStudyConcept } from "./conceptShape.js";
-import { seedConceptOutline } from "./conceptOutline.js";
+import { FIND_BEATS, QUEST_BEATS, seedConceptOutline } from "./conceptOutline.js";
 import {
   initCourseFromUrl,
   looksLikeCourseUrl,
@@ -48,6 +49,7 @@ import {
   stripLeadingTitle,
   knowledgeSlice,
   loadLearner,
+  matchOpenQuest,
   readConceptTeachings,
   readLectureSummary,
   recordQuiz,
@@ -71,6 +73,7 @@ import {
   normalizeLectureStatus,
 } from "./lectureProgress.js";
 import { lecturesForConcept, coursesForConcept, unlockedConceptIds } from "./library.js";
+import { syncLectureConceptTags } from "./lectureMap.js";
 import { conceptsFromDoneQuests, matchExistingConcept, slugConceptId } from "./questConcept.js";
 import {
   hitConceptIds,
@@ -132,12 +135,16 @@ interface Session {
   agentQueue?: Promise<void>;
   cancel?: AbortController;
   rewrite?: Promise<void>;
+  workEpoch: number;
 }
 
 const sessions = new Map<string, Session>();
 
 export async function catalogPayload(): Promise<CatalogPayload> {
   let catalog = await loadCatalog();
+  if (await syncLectureConceptTags(catalog)) {
+    catalog = await loadCatalog();
+  }
   const learner = await loadLearner();
   const hinted = applyProgressHints(learner.progress, catalog);
   const decayed = applyDecayHints({
@@ -158,18 +165,24 @@ export async function catalogPayload(): Promise<CatalogPayload> {
     for (const { quest, id } of quested.missingIds) quest.conceptId = id;
     await saveLearner(learner);
   }
+  const unlocked = unlockedConceptIds(
+    catalog,
+    hinted.progress,
+    quested.questConceptIds,
+  );
   const conceptTeachings = await readConceptTeachings();
   for (const [id, text] of Object.entries(conceptTeachings)) {
     const name = quested.concepts[id]?.name;
-    if (name) conceptTeachings[id] = stripLeadingTitle(text, name);
+    const body = name ? stripLeadingTitle(text, name) : text;
+    conceptTeachings[id] = keepUnlockedConceptLinks(body, unlocked);
   }
   for (const quest of learner.sideQuests) {
     if (quest.status !== "done" || !quest.conceptId || !quest.notes.trim()) continue;
     if (conceptTeachings[quest.conceptId]) continue;
     await writeConceptTeaching(quest.conceptId, quest.notes, quest.title);
-    conceptTeachings[quest.conceptId] = formatConceptTeaching(
-      quest.title,
-      quest.notes,
+    conceptTeachings[quest.conceptId] = keepUnlockedConceptLinks(
+      formatConceptTeaching(quest.title, quest.notes),
+      unlocked,
     );
   }
   return {
@@ -416,6 +429,7 @@ export async function startSession(input: {
     offeredCourses: [],
     busy: false,
     primed: newPriming(),
+    workEpoch: 0,
   };
 
   if (input.kind === "debrief") {
@@ -436,17 +450,23 @@ export async function startSession(input: {
       s.questId = existing.id;
       s.questTitle = existing.title;
     } else if (title) {
-      const next = addQuest(learner.sideQuests, {
-        title,
-        source: "user",
-        courseId: input.courseId,
-        lectureN: input.lectureN,
-      });
-      learner.sideQuests = next;
-      const created = next[next.length - 1];
-      s.questId = created.id;
-      s.questTitle = created.title;
-      await saveLearner(learner);
+      const existing = matchOpenQuest(learner.sideQuests, title);
+      if (existing) {
+        s.questId = existing.id;
+        s.questTitle = existing.title;
+      } else {
+        const next = addQuest(learner.sideQuests, {
+          title,
+          source: "user",
+          courseId: input.courseId,
+          lectureN: input.lectureN,
+        });
+        learner.sideQuests = next;
+        const created = next[next.length - 1];
+        s.questId = created.id;
+        s.questTitle = created.title;
+        await saveLearner(learner);
+      }
     }
     s.inspect = await buildInspect(catalog, learner, {
       ...input,
@@ -607,6 +627,18 @@ export async function acceptQuest(
     pick = resolved.title;
   }
   const learner = await loadLearner();
+  const existing = matchOpenQuest(learner.sideQuests, pick);
+  if (existing) {
+    s.phase = "done";
+    await persist(s);
+    return startSession({
+      kind: "quest",
+      courseId: s.courseId,
+      lectureN: s.lectureN,
+      questId: existing.id,
+      questTitle: existing.title,
+    });
+  }
   learner.sideQuests = addQuest(learner.sideQuests, {
     title: pick,
     source: "user",
@@ -877,7 +909,17 @@ async function startQuizQueue(s: Session): Promise<SessionSnapshot> {
 }
 
 async function startFindFlow(s: Session): Promise<SessionSnapshot> {
-  return withBusy(s, () => findTurn(s), "Looking for lecture series…");
+  s.generatingOutline = FIND_BEATS;
+  if (!s.messages.length) {
+    push(s, {
+      role: "assistant",
+      kind: "status",
+      text: "Looking for lecture series…",
+    });
+  }
+  const work = withBusy(s, () => findTurn(s), "Looking for lecture series…");
+  void work.catch(() => undefined);
+  return snapshot(s);
 }
 
 async function findTurn(s: Session, message?: string): Promise<void> {
@@ -929,7 +971,21 @@ async function commitPickedCourse(s: Session, rawUrl: string): Promise<void> {
 }
 
 async function startQuestFlow(s: Session): Promise<SessionSnapshot> {
-  return withBusy(s, () => openQuest(s), "Opening the quest…");
+  const learner = await loadLearner();
+  const quest = learner.sideQuests.find((q) => q.id === s.questId);
+  if (quest?.notes?.trim()) {
+    return withBusy(s, () => openQuest(s), "Opening the quest…");
+  }
+  s.generatingOutline = QUEST_BEATS;
+  s.messages = [];
+  push(s, {
+    role: "assistant",
+    kind: "status",
+    text: "Opening the quest…",
+  });
+  const work = withBusy(s, () => openQuest(s), "Opening the quest…");
+  void work.catch(() => undefined);
+  return snapshot(s);
 }
 
 export async function switchConcept(
@@ -941,12 +997,13 @@ export async function switchConcept(
     throw new Error("Only a concept session can open another concept.");
   }
   if (!conceptId.trim()) throw new Error("conceptId is required.");
-  if (s.busy) {
-    s.cancel?.abort();
-    s.busy = false;
-    s.workingOn = undefined;
-    s.cancel = undefined;
-  }
+  s.workEpoch += 1;
+  s.cancel?.abort();
+  s.busy = false;
+  s.workingOn = undefined;
+  s.generatingOutline = undefined;
+  s.cancel = undefined;
+  await closeAgent(s);
   s.conceptId = conceptId;
   s.phase = "concept";
   s.quiz = undefined;
@@ -954,6 +1011,12 @@ export async function switchConcept(
   s.quizBank = [];
   s.quizMode = undefined;
   return startConceptFlow(s);
+}
+
+function unlockedIn(catalog: Catalog, learner: LearnerState): Set<string> {
+  const hinted = applyProgressHints(learner.progress, catalog);
+  const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
+  return unlockedConceptIds(catalog, hinted.progress, quested.questConceptIds);
 }
 
 async function startConceptFlow(s: Session): Promise<SessionSnapshot> {
@@ -966,8 +1029,26 @@ async function startConceptFlow(s: Session): Promise<SessionSnapshot> {
   if (!def) throw new Error("Unknown concept.");
   s.questTitle = def.name;
   s.offersConceptQuiz = Boolean(def.parentId);
-  const related = relatedConcepts(quested.concepts, id);
+  const unlocked = unlockedIn(catalog, learner);
+  const related = relatedUnlocked(quested.concepts, id, unlocked);
   const stored = (await teachingsForIds([id]))[id]?.trim();
+  if (!unlocked.has(id)) {
+    s.generatingOutline = undefined;
+    if (stored) {
+      await openConcept(s);
+      return snapshot(s);
+    }
+    s.messages = [];
+    push(s, {
+      role: "assistant",
+      kind: "status",
+      text: "This idea shows on the map after you debrief a lecture that covers it.",
+    });
+    s.phase = "concept";
+    s.inspect = await refreshInspect(s);
+    await persist(s);
+    return snapshot(s);
+  }
   if (stored) {
     s.generatingOutline = undefined;
     await openConcept(s);
@@ -1107,24 +1188,44 @@ function teachingWithSeeAlso(
 }
 
 async function openConcept(s: Session): Promise<void> {
+  const id = s.conceptId;
+  const epoch = s.workEpoch;
+  if (!id) throw new Error("conceptId is required.");
+  const stale = () => s.conceptId !== id || s.workEpoch !== epoch;
   const catalog = await loadCatalog();
   const learner = await loadLearner();
+  if (stale()) return;
   const hinted = applyProgressHints(learner.progress, catalog);
   const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
-  const id = s.conceptId;
-  if (!id) throw new Error("conceptId is required.");
   const def = quested.concepts[id];
   if (!def) throw new Error("Unknown concept.");
-  s.questTitle = def.name;
-  s.offersConceptQuiz = Boolean(def.parentId);
-  const related = relatedConcepts(quested.concepts, id);
+  const unlocked = unlockedIn(catalog, learner);
+  const related = relatedUnlocked(quested.concepts, id, unlocked);
   const sources = coursesForConcept(catalog, id);
   const allowedCourses = new Set(sources.map((c) => c.id));
   const stored = (await teachingsForIds([id]))[id];
+  if (stale()) return;
+  s.questTitle = def.name;
+  s.offersConceptQuiz = Boolean(def.parentId);
   const lectures = lecturesForConcept(catalog, hinted.progress, id);
   let body = stripLeadingTitle(stored?.trim() ?? "", def.name);
+  if (!unlocked.has(id) && !body) {
+    if (stale()) return;
+    s.generatingOutline = undefined;
+    s.messages = [];
+    push(s, {
+      role: "assistant",
+      kind: "status",
+      text: "This idea shows on the map after you debrief a lecture that covers it.",
+    });
+    s.phase = "concept";
+    s.inspect = await refreshInspect(s);
+    await persist(s);
+    return;
+  }
   if (!body) {
     const ctx = await contextOf(s);
+    if (stale()) return;
     const plan = await withAgent(s, (agent) =>
       draftConceptTeaching({
         agent,
@@ -1139,14 +1240,16 @@ async function openConcept(s: Session): Promise<void> {
         sources,
         lectures,
         onOutline: (beats) => {
+          if (stale()) return;
           s.generatingOutline = beats;
         },
       }),
     );
+    if (stale()) return;
     advancePriming(s.primed);
     const allowed = new Set(related.map((row) => row.id));
     const extra = plan.relatedIds
-      .filter((cid) => quested.concepts[cid] && cid !== id)
+      .filter((cid) => quested.concepts[cid] && cid !== id && unlocked.has(cid))
       .map((cid) => ({ id: cid, name: quested.concepts[cid].name }));
     const see = [
       ...related,
@@ -1162,9 +1265,9 @@ async function openConcept(s: Session): Promise<void> {
     body = links
       ? `${plan.explanation.trim()}\n\n${links}`
       : plan.explanation.trim();
-    body = teachingWithSeeAlso(body, see);
+    body = keepUnlockedConceptLinks(teachingWithSeeAlso(body, see), unlocked);
   } else {
-    body = teachingWithSeeAlso(body, related);
+    body = keepUnlockedConceptLinks(teachingWithSeeAlso(body, related), unlocked);
   }
   const kn = learner.knowledge.find((row) => row.id === id);
   body = applyKnowledgePasses(body, kn, {
@@ -1178,9 +1281,11 @@ async function openConcept(s: Session): Promise<void> {
     ),
     def.name,
   );
-  if (cleaned !== (stored?.trim() ?? "")) {
+  if (stale()) return;
+  if (unlocked.has(id) && cleaned !== (stored?.trim() ?? "")) {
     await writeConceptTeaching(id, cleaned, def.name);
   }
+  if (stale()) return;
   body = cleaned;
   s.generatingOutline = undefined;
   s.messages = [];
@@ -1311,6 +1416,8 @@ async function continueAfterQuestGate(s: Session): Promise<void> {
     await persist(s);
     return;
   }
+  s.workingOn = "Writing a question…";
+  s.generatingOutline = undefined;
   if (!s.quizBank.length) {
     await writeQuestQuiz(s);
     return;
@@ -1319,6 +1426,8 @@ async function continueAfterQuestGate(s: Session): Promise<void> {
 }
 
 async function writeQuestQuiz(s: Session): Promise<void> {
+  s.workingOn = "Writing a question…";
+  s.generatingOutline = undefined;
   s.quizMode = "quest";
   const id = s.questId ? `quest:${s.questId}` : "quest";
   s.quizQueue = [id];
@@ -1716,12 +1825,15 @@ async function queueRewrite(s: Session, evidence: string): Promise<void> {
     .catch(() => undefined)
     .then(() =>
       withAgent(s, async (agent) => {
-        const learner = await loadLearner();
+        const prior = await loadLearner();
         const next = await rewriteLearnerNotes({
           agent,
-          priorProfile: learner.profile,
+          priorProfile: prior.profile,
           evidence,
         });
+        // Reload before write: Finish may have marked progress complete while
+        // the profile rewrite was in flight. saveLearner dumps the whole tree.
+        const learner = await loadLearner();
         learner.profile = next.profile;
         await saveLearner(learner);
         s.inspect = await refreshInspect(s);
@@ -1869,7 +1981,11 @@ function phaseForStart(kind: SessionKind): Phase {
 function workingLabel(s: Session): string {
   if (s.kind === "debrief") return "Reading summary…";
   if (s.kind === "quiz") return "Writing a question…";
-  if (s.kind === "quest") return "Opening the quest…";
+  if (s.kind === "quest") {
+    if (s.phase === "quest_gate") return "Checking the paraphrase…";
+    if (s.phase === "quiz_item") return "Writing a question…";
+    return "Opening the quest…";
+  }
   if (s.kind === "concept") return "Generating text…";
   if (s.kind === "find") return "Looking for lecture series…";
   return "Working…";
@@ -1898,14 +2014,17 @@ async function withBusy(
   label = "Working…",
 ): Promise<SessionSnapshot> {
   if (s.busy) throw new Error("Session is already working.");
+  const epoch = s.workEpoch;
+  const cancel = new AbortController();
   s.busy = true;
   s.error = undefined;
   s.workingOn = label;
-  s.cancel = new AbortController();
+  s.cancel = cancel;
   try {
     await fn();
   } catch (err) {
-    const aborted = s.cancel.signal.aborted;
+    if (s.workEpoch !== epoch) return snapshot(s);
+    const aborted = cancel.signal.aborted;
     const message = aborted
       ? "Interrupted."
       : err instanceof Error
@@ -1916,11 +2035,13 @@ async function withBusy(
       push(s, { role: "assistant", kind: "status", text: message });
     }
   } finally {
-    s.busy = false;
-    s.workingOn = undefined;
-    s.generatingOutline = undefined;
-    s.cancel = undefined;
-    await persist(s);
+    if (s.workEpoch === epoch && s.cancel === cancel) {
+      s.busy = false;
+      s.workingOn = undefined;
+      s.generatingOutline = undefined;
+      s.cancel = undefined;
+      await persist(s);
+    }
   }
   return snapshot(s);
 }
@@ -1929,9 +2050,15 @@ async function withAgent<T>(
   s: Session,
   fn: (agent: LocalAgent) => Promise<T>,
 ): Promise<T> {
+  const epoch = s.workEpoch;
   const mine = (s.agentQueue ?? Promise.resolve())
     .catch(() => undefined)
-    .then(() => sendOnAgent(s, fn));
+    .then(() => {
+      if (s.workEpoch !== epoch) {
+        throw new Error("Interrupted.");
+      }
+      return sendOnAgent(s, fn);
+    });
   s.agentQueue = mine.then(
     () => undefined,
     () => undefined,
@@ -1943,13 +2070,24 @@ async function sendOnAgent<T>(
   s: Session,
   fn: (agent: LocalAgent) => Promise<T>,
 ): Promise<T> {
+  const epoch = s.workEpoch;
   if (!s.agent) {
-    s.agent = await createStudyAgent();
+    const agent = await createStudyAgent();
+    if (s.workEpoch !== epoch) {
+      try {
+        await agent.close();
+      } catch {
+        /* dropped */
+      }
+      throw new Error("Interrupted.");
+    }
+    s.agent = agent;
     s.primed = newPriming();
   }
   try {
     return await fn(s.agent);
   } catch (err) {
+    if (s.workEpoch !== epoch) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     if (!/authentication error/i.test(msg)) throw err;
     try {
@@ -1957,6 +2095,7 @@ async function sendOnAgent<T>(
     } catch {
       /* replace anyway */
     }
+    if (s.workEpoch !== epoch) throw err;
     s.agent = await createStudyAgent();
     s.primed = newPriming();
     return fn(s.agent);
@@ -1996,14 +2135,23 @@ function snapshot(s: Session): SessionSnapshot {
 }
 
 function persistable(s: Session): unknown {
-  const { agent, primed, agentQueue, cancel, rewrite, generatingOutline, ...rest } =
-    s;
+  const {
+    agent,
+    primed,
+    agentQueue,
+    cancel,
+    rewrite,
+    generatingOutline,
+    workEpoch,
+    ...rest
+  } = s;
   void agent;
   void primed;
   void agentQueue;
   void cancel;
   void rewrite;
   void generatingOutline;
+  void workEpoch;
   return rest;
 }
 
@@ -2053,6 +2201,7 @@ function hydrate(raw: unknown): Session | undefined {
     workingOn: undefined,
     error: o.error,
     primed: newPriming(),
+    workEpoch: 0,
   };
 }
 

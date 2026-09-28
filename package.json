@@ -11,6 +11,7 @@
     "design:check": "tsx --tsconfig tsconfig.web.json web/src/design/smoke.tsx",
     "check:quiz": "tsx checks/quiz-pick.ts",
     "check:catalog": "tsx checks/catalog.ts",
+    "check:map": "tsx checks/lecture-map.ts",
     "check:decay": "tsx checks/decay.ts",
     "check:progress": "tsx checks/lecture-progress.ts",
     "check:quests": "tsx checks/quests.ts",
@@ -18,7 +19,8 @@
     "check:typesafe": "tsx checks/typeSafe.ts",
     "check:init": "tsx checks/init-course.ts",
     "check:measure": "tsx checks/measure-tokens.ts",
-    "check": "npm run check:catalog && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:knowledge && npm run check:typesafe && npm run check:init && npm run check:measure && npm run design:check && npm run typecheck",
+    "check:prompt-budget": "tsx checks/prompt-budget.ts",
+    "check": "npm run check:catalog && npm run check:map && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:knowledge && npm run check:typesafe && npm run check:init && npm run check:prompt-budget && npm run check:measure && npm run design:check && npm run typecheck",
     "build": "tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },

@@ -5,11 +5,14 @@ import { LEAN_SNIPPET, type MathlibHit } from "./leanSearch.js";
 import {
   clip,
   formatVocabPair,
+  parseTheoremBlock,
   parseTheoremBullet,
   parseVocabPair,
   SLOPPY_PROOF_CORRECTION,
   isProofSketch,
+  asExample,
 } from "./learner.js";
+import { clipForAgent } from "./promptBudget.js";
 import { wrapStandardTex } from "./texDisplay.js";
 import type {
   ConceptTheorem,
@@ -123,7 +126,7 @@ export function assembleStandingContext(ctx: ContextSlice): string {
     `Concepts in play:\n${ctx.concepts}`,
     `Known in this slice:\n${ctx.knowledgeSlice}`,
     ctx.teachings
-      ? `Teachings on file (do not regenerate; use these):\n${clip(ctx.teachings, CLIP.teachings)}`
+      ? `Teachings on file (do not regenerate; use these):\n${clipForAgent(ctx.teachings, CLIP.teachings, "teaching")}`
       : "",
   ]
     .filter(Boolean)
@@ -149,8 +152,8 @@ export const DEBRIEF_INSTRUCTIONS = [
   "offeredQuests: only if his summary explicitly asks to chase a side topic (title + why). Empty otherwise. Do not upsell detours.",
   "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Inverted definition, backwards implication, or missing move → shaky. A sign flip or other arithmetic slip in the chat transcription → known (still list that slip in corrections). Spelling typos stay off the card.",
   "vocab: 0–8 {term, gloss} pairs from THIS summary. gloss is a one-line definition in his words (or a close paraphrase of what he wrote). Skip a word he named but did not characterize. Empty if this was not a vocabulary pass. Do not invent a glossary.",
-  "theorems: 0–4 {claim, proof} from THIS summary, preferred over extra examples when both exist. claim is the actual statement (existence, uniqueness, detailed balance ⇒ stationary, …). proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field.",
-  "example: at most one per concept, from THIS summary. Keep it only if it carries a method or theorem (a computation, a reusable model, a special case that proves a claim). Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
+  "theorems: 0–4 {title, claim, proof} from THIS summary. Only explicitly named results that belong in a theorem library (Weak law of large numbers, Bayes' theorem, Cauchy–Schwarz, …) — the kind of thing mathlib names. title is the ordinary name of that result (required). claim is the statement. proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty proof if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are not theorems — put those in example.",
+  "example: at most one per concept, from THIS summary. Working cases and unnamed proofs: a computation, a reusable model, a special case, or a claim/proof that is not a named library theorem. Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
 ].join("\n\n");
 
 export async function runDebrief(opts: {
@@ -167,7 +170,7 @@ export async function runDebrief(opts: {
     [
       contextBlock({ primed: opts.primed, ctx: opts.ctx }),
       DEBRIEF_INSTRUCTIONS,
-      `Summary:\n${clip(opts.summary, CLIP.summary)}`,
+      `Summary:\n${clipForAgent(opts.summary, CLIP.summary, "prose")}`,
     ].join("\n\n"),
     {
       local: {
@@ -216,10 +219,11 @@ export async function runDebrief(opts: {
                             items: {
                               type: "object",
                               properties: {
+                                title: { type: "string" },
                                 claim: { type: "string" },
                                 proof: { type: "string" },
                               },
-                              required: ["claim"],
+                              required: ["title", "claim"],
                             },
                           },
                         },
@@ -728,7 +732,8 @@ export async function draftConceptTeaching(opts: {
       "This is not a side quest. Do not write 'side quest', 'in this side quest', or treat the topic as a detour.",
       "Write for him, not for yourself. Cover what the idea is, when he should reach for it, and one mix-up that actually bites — but invent headings that belong to this concept. Do not recycle a house template (Mix-up worth watching, When you'd actually use this, When to reach for it). Do not write a heading about inverted definitions. Do not write '(fix once, then move on)' or similar asides.",
       "Do not start with a title — the pane already names the concept. Do not dump copyrighted notes.",
-      "Do not write Vocabulary, Theorems, or Examples sections — the host appends those from his summaries.",
+      "Later lectures may add Vocabulary, Theorems, and Examples — the host appends those from his summaries. Theorems are only explicitly named library results; unnamed proofs and worked cases land under Examples.",
+      "Do not write Vocabulary, Theorems, or Examples sections yourself.",
       "links: 0–3 http(s) pages that actually help. Empty is fine. Do not use http for in-app concept jumps. Do not link a course that is not in the sources list.",
       opts.parentName ? `Sits under: ${opts.parentName}` : "",
       sourceBlock,
@@ -868,7 +873,7 @@ export async function writeStandardProof(opts: {
         STANDARD_PROOF_INSTRUCTIONS,
         `Claim:\n${clip(opts.claim, 500)}`,
         `Mathlib \`${opts.hit.lemma}\` informal:\n${clip(opts.hit.informal, 500)}`,
-        `Lean:\n${clip(opts.hit.lean, CLIP.lean)}`,
+        `Lean:\n${clipForAgent(opts.hit.lean, CLIP.lean, "lean")}`,
       ].join("\n\n"),
       {
         local: {
@@ -1053,18 +1058,21 @@ function asTheorems(
       const named = /\bProof:\s*([\s\S]+)$/i.exec(item)?.[1]?.trim() ?? "";
       if (named && !isProofSketch(named)) flag.sloppy = true;
       const parsed = parseTheoremBullet(item);
-      if (parsed) rows.push(parsed);
+      if (parsed?.title?.trim()) rows.push(parsed);
       continue;
     }
     if (!item || typeof item !== "object") continue;
-    const o = item as { claim?: unknown; proof?: unknown };
+    const o = item as { title?: unknown; claim?: unknown; proof?: unknown };
+    const title = String(o.title ?? "").trim();
     const claim = String(o.claim ?? "").trim();
     const proof = String(o.proof ?? "").trim();
-    if (!claim) continue;
+    if (!title || !claim) continue;
     if (proof && !isProofSketch(proof)) flag.sloppy = true;
-    const parsed = parseTheoremBullet(
-      proof && isProofSketch(proof) ? `${claim} Proof: ${proof}` : claim,
-    );
+    const block =
+      proof && isProofSketch(proof)
+        ? `### ${title}\n\n${claim}\n\nMoves: ${proof}`
+        : `### ${title}\n\n${claim}`;
+    const parsed = parseTheoremBlock(block);
     if (parsed) rows.push(parsed);
   }
   return rows.slice(0, 4);
@@ -1106,7 +1114,7 @@ function asUpdates(value: unknown): {
       const status = String(o.status ?? "");
       if (!id) return undefined;
       const st = status === "known" ? "known" : "shaky";
-      const example = String(o.example ?? "").trim();
+      const example = asExample(o.example);
       const vocab = asVocab(o.vocab);
       const theorems = asTheorems(o.theorems, flag);
       return {

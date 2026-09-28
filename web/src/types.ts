@@ -32,6 +32,7 @@ export type KnowledgeStatus = "known" | "shaky" | "unseen";
 export type TheoremStatus = "asserted" | "proved";
 
 export interface ConceptTheorem {
+  /** Explicit library name — only named (mathlib-shaped) results live under Theorems. */
   title?: string;
   claim: string;
   status: TheoremStatus;
