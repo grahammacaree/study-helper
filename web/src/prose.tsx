@@ -150,6 +150,11 @@ function parseSegments(src: string): Seg[] {
       rest = rest.slice(math[0].length);
       continue;
     }
+    if (rest.startsWith("$$")) {
+      // Unclosed display. Slicing at the match would not advance.
+      segs.push({ kind: "p", text: rest });
+      break;
+    }
     if (/^[ \t]{0,3}[-*•]\s+/.test(rest)) {
       const taken = takeList(rest, /^[ \t]{0,3}[-*•][ \t]+/);
       if (taken) {
@@ -194,6 +199,10 @@ function parseSegments(src: string): Seg[] {
     const cut = rest.search(
       /\n\n|\$\$|\n#{1,4}\s|\n[ \t]{0,3}[-*•]\s|\n[ \t]{0,3}\d+[.)][ \t]*\n/,
     );
+    if (cut === 0) {
+      rest = rest.slice(1);
+      continue;
+    }
     const take = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
     if (take) segs.push({ kind: "p", text: take });
     rest = cut >= 0 ? rest.slice(cut) : "";
@@ -282,9 +291,14 @@ function joinCribLine(labels: string[]): string | undefined {
   return `by ${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
 }
 
+/** Drop C0 controls (keep tab/newline). Stray ESC before `\phi` breaks KaTeX. */
+function stripControls(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
 function tidy(text: string): string {
   return wrapBareTex(
-    text
+    stripControls(text)
       .trim()
       .replace(/\*{3,}/g, "**")
       .replace(/\\\[([\s\S]+?)\\\]/g, (_, m: string) => `$$${m}$$`)
@@ -337,7 +351,13 @@ function wrapBareTex(text: string): string {
     }
     const m = BARE_TEX.exec(text.slice(i));
     if (m) {
-      out += `$${m[0]}$`;
+      // Adjacent wraps (`a_nx^n` → `$a_n$` + `$x^n$`) form `$$`, which the
+      // segment parser treats as display math and can spin on if it never closes.
+      if (out.endsWith("$") && !out.endsWith("$$")) {
+        out = `${out.slice(0, -1)}${m[0]}$`;
+      } else {
+        out += `$${m[0]}$`;
+      }
       i += m[0].length;
       continue;
     }
@@ -398,6 +418,17 @@ function inline(
       }
       i += 2;
       continue;
+    }
+    // Display math can sit inside a list item (indented $$…$$). Handle it
+    // before single-$ so we never open inline math on the second $ of $$.
+    if (text.startsWith("$$", i)) {
+      const end = text.indexOf("$$", i + 2);
+      if (end > i) {
+        nodes.push(mathNode(text.slice(i + 2, end), true, `${seed}-m-${k}`));
+        k += 1;
+        i = end + 2;
+        continue;
+      }
     }
     if (text[i] === "$" && text[i + 1] !== "$") {
       const end = nextUnescapedDollar(text, i + 1);

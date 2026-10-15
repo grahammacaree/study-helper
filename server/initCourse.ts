@@ -7,6 +7,7 @@ import {
   type Catalog,
 } from "./catalog.js";
 import { projectRoot } from "./env.js";
+import { syncLectureConceptTags } from "./lectureMap.js";
 import { lecturesAllComplete } from "./lectureProgress.js";
 import type { CourseMeta, Lecture } from "./types.js";
 
@@ -117,6 +118,7 @@ export async function initCourseFromUrl(rawUrl: string): Promise<InitCourseResul
   const index = await readCourseIndex();
   index.courses.push(meta);
   await writeCourseIndex(index);
+  await syncLectureConceptTags(await loadCatalog());
 
   const siteUpdated = await callPersonalSite("onCourseInit", {
     title,

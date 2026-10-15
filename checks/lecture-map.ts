@@ -14,6 +14,7 @@ function fail(why: string): void {
 
 const concepts: Record<string, ConceptDef> = {
   "differential-equations": { name: "Differential equations" },
+  cryptography: { name: "Cryptography" },
   "first-order-ode": {
     name: "First-order ODEs",
     parentId: "differential-equations",
@@ -34,6 +35,7 @@ const concepts: Record<string, ConceptDef> = {
   "discrete-named": { name: "Named discrete distributions" },
   geometric: { name: "Geometric", parentId: "discrete-named" },
   hypergeometric: { name: "Hypergeometric", parentId: "discrete-named" },
+  rsa: { name: "RSA public-key cryptography", parentId: "cryptography" },
 };
 
 if (
@@ -102,6 +104,20 @@ if (
   fail("a lecture that names Geometric should still tag it");
 }
 if (
+  suggestedConceptIds("Introduction to Cryptography", concepts).join() !==
+  "cryptography"
+) {
+  fail("a category root should tag when the lecture title names it");
+}
+if (
+  suggestedConceptIds("RSA public-key cryptography", concepts).join() !== "rsa"
+) {
+  fail("a child leaf should beat its category parent when both match");
+}
+if (suggestedConceptIds("Algorithms", concepts).includes("cryptography")) {
+  fail("an unrelated title should not pick up a category root");
+}
+if (
   mergeLectureConceptIds(
     ["geometric"],
     [],
@@ -131,8 +147,17 @@ const merged = mergeLectureConceptIds(
 if (!merged.includes("first-order-ode")) {
   fail("a first-order title should pick up first-order-ode");
 }
-if (merged.includes("complex-exp")) {
-  fail("stale tags that the title does not name should drop when retagging");
+if (!merged.includes("complex-exp")) {
+  fail("curated tags the title does not name should stay when retagging");
+}
+const cryptoKept = mergeLectureConceptIds(
+  ["number-theory", "cryptography"],
+  ["number-theory"],
+  { ...concepts, "number-theory": { name: "Number theory", parentId: "discrete-math" }, "discrete-math": { name: "Discrete mathematics" } },
+  "Number theory II",
+);
+if (!cryptoKept.includes("cryptography") || !cryptoKept.includes("number-theory")) {
+  fail("Cryptography should stay on Number theory II when curated alongside number-theory");
 }
 
 const stripped = keepUnlockedConceptLinks(

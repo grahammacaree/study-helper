@@ -73,6 +73,9 @@ for (const s of SCENARIOS) {
   if (!html.includes("Concept library")) {
     fail(s.id, "pane should be titled Concept library");
   }
+  if (!html.includes('placeholder="Search notes…"') && !html.includes("Incomplete lectures stay off")) {
+    fail(s.id, "library with concepts should offer search");
+  }
   if (html.includes(">Initialise<") || html.includes(">Start<")) {
     fail(s.id, "add form should use an arrow, not Initialise/Start");
   }
@@ -450,6 +453,20 @@ if (!olLoose.includes("Not a fourth item")) {
 const starMath = proseHtml("Any constant $y = y^*$ stays an equilibrium.");
 if (starMath.includes("<em")) fail("prose", "stars inside $...$ are TeX, not italics");
 if (!starMath.includes("katex")) fail("prose", "$y^*$ should render as TeX");
+const escPhi = proseHtml(`totient $${"\u001b"}\\phi(n)$`);
+if (escPhi.includes("katex-error") || escPhi.includes("#cc0000")) {
+  fail("prose", "ESC before \\phi should be stripped so KaTeX can render");
+}
+if (!escPhi.includes("katex")) fail("prose", "cleaned \\phi(n) should still render as TeX");
+const listDisplay = proseHtml(
+  "3. real basis\n   $$e^{\\sigma x}\\cos(\\omega x), \\qquad e^{\\sigma x}\\sin(\\omega x).$$\n   The sign of $\\sigma$.",
+);
+if (listDisplay.includes("katex-error") || listDisplay.includes("#cc0000")) {
+  fail("prose", "indented $$…$$ inside a list item should render as display TeX");
+}
+if (!listDisplay.includes("katex")) {
+  fail("prose", "list-item display math should still render as TeX");
+}
 const escapedStar = proseHtml("Any constant $y = y^\\*$ with $g(y^\\*) = 0$.");
 if (escapedStar.includes("\\*")) {
   fail("prose", "escaped stars inside math should render as a true asterisk");
@@ -470,6 +487,13 @@ const paren = proseHtml("see \\(x^2\\) here");
 if (!paren.includes("katex")) fail("prose", "\\(...\\) should render as TeX");
 const bare = proseHtml("T=Z^{2} on top");
 if (!bare.includes("katex")) fail("prose", "bare Z^{2} should render as TeX");
+const juxta = proseHtml("sum of a_nx^n");
+if (!juxta.includes("katex")) fail("prose", "adjacent bare tokens should still render");
+if (juxta.includes("$$")) fail("prose", "adjacent bare tokens must not become $$");
+const unclosed = proseHtml("$$\nnever closes");
+if (!unclosed.includes("never closes")) {
+  fail("prose", "unclosed $$ should still show the following text");
+}
 const split = proseHtml("$a =\nb$");
 if (!split.includes("katex")) fail("prose", "math split across lines should still render");
 const genTex = renderToString(

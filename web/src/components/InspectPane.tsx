@@ -6,6 +6,7 @@ import {
   unlockedConceptIds,
   type LibraryNode,
 } from "../library";
+import { searchLibrary } from "../librarySearch";
 import { decayClass } from "../decayView";
 import { nextIncompleteLectureN } from "../lectureProgress";
 import { Octicon } from "./Octicon";
@@ -57,6 +58,15 @@ export function ConceptsPane({
       ? activeConceptId
       : lectureUnlocked[0];
   const [openIds, setOpenIds] = useState(() => new Set(revealIds(concepts, selected)));
+  const [query, setQuery] = useState("");
+  const hits = searchLibrary(
+    query,
+    unlocked,
+    concepts,
+    catalog?.knowledge ?? [],
+    catalog?.conceptTeachings ?? {},
+  );
+  const searching = query.trim().length >= 2;
 
   useEffect(() => {
     setOpenIds((prior) => {
@@ -99,7 +109,42 @@ export function ConceptsPane({
           </div>
         </div>
         <div className="file-inspect-body inspect-prose">
-          {forest.length ? (
+          {searching ? (
+            hits.length ? (
+              <ul className="library-hits">
+                {hits.map((hit) => (
+                  <li key={hit.id}>
+                    <button
+                      type="button"
+                      className={
+                        hit.id === selected
+                          ? "library-hit current"
+                          : "library-hit"
+                      }
+                      aria-current={hit.id === selected ? "true" : undefined}
+                      onClick={() => {
+                        setOpenIds((prior) => {
+                          const next = new Set(prior);
+                          for (const id of revealIds(concepts, hit.id)) {
+                            next.add(id);
+                          }
+                          return next;
+                        });
+                        onConcept?.(hit.id);
+                      }}
+                    >
+                      <span className="library-hit-name">{hit.name}</span>
+                      {hit.where !== "name" ? (
+                        <span className="library-hit-where muted">{hit.where}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No unlocked notes match that.</p>
+            )
+          ) : forest.length ? (
             <ul className="concept-tree">
               {forest.map((node) => (
                 <ConceptBranch
@@ -126,6 +171,19 @@ export function ConceptsPane({
             </p>
           )}
         </div>
+        {forest.length ? (
+          <label className="library-search">
+            <span className="visually-hidden">Search library</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search notes…"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+        ) : null}
       </div>
     </aside>
   );
@@ -216,6 +274,7 @@ export function CourseNav({
   courseId,
   onCourse,
   onInit,
+  loading,
   initBusy,
   busy,
   workingOn,
@@ -230,6 +289,7 @@ export function CourseNav({
   courseId: string | null;
   onCourse: (id: string) => void;
   onInit: (url: string) => void;
+  loading?: boolean;
   initBusy?: boolean;
   busy?: boolean;
   workingOn?: string;
@@ -277,6 +337,11 @@ export function CourseNav({
           No <code>CURSOR_API_KEY</code> in <code>.env</code>.
         </p>
       )}
+      {loading ? (
+        <p className="status working" role="status">
+          Loading courses…
+        </p>
+      ) : null}
       {group("Current courses", current)}
       {sideQuests.length ? (
         <>
@@ -412,6 +477,7 @@ export function CourseMap({
   courseId,
   lectureN,
   concepts = {},
+  loading,
   initBusy,
   onLecture,
   onStart,
@@ -421,6 +487,7 @@ export function CourseMap({
   courseId: string | null;
   lectureN: number | null;
   concepts?: Record<string, ConceptDef>;
+  loading?: boolean;
   initBusy?: boolean;
   onLecture: (n: number) => void;
   onStart: (kind: "debrief" | "quiz") => void;
@@ -433,7 +500,9 @@ export function CourseMap({
     <section className="main-column" aria-label="Course map">
       <header className="pane-head">
         <div className="head-row">
-          <h1 className="course-title">{course?.title ?? "Courses"}</h1>
+          <h1 className="course-title">
+            {loading ? "Loading…" : (course?.title ?? "Courses")}
+          </h1>
           {course ? (
             <p className="course-byline">{course.instructors}</p>
           ) : null}
@@ -455,6 +524,11 @@ export function CourseMap({
         {initBusy ? (
           <p className="status working" role="status">
             Adding the course…
+          </p>
+        ) : null}
+        {loading ? (
+          <p className="status working" role="status">
+            Loading courses…
           </p>
         ) : null}
       </header>

@@ -102,6 +102,8 @@ export interface ChatMessage {
   at: number;
   debrief?: DebriefCard;
   quiz?: QuizItem;
+  /** Off-topic debrief: put this back in the composer (and clipboard). */
+  restoreCompose?: string;
 }
 
 export interface SideQuest {

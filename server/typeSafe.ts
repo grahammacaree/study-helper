@@ -100,6 +100,54 @@ export function decideAdequate(restates?: number, question?: number): boolean {
   return noulYes(restates) && noulNo(question);
 }
 
+/** Clear off-topic only; unsure / TypeSafe-off → allow the debrief through. */
+export function decideLectureMatch(onTopic?: number): "match" | "mismatch" | "skip" {
+  if (noulNo(onTopic)) return "mismatch";
+  if (noulYes(onTopic)) return "match";
+  return "skip";
+}
+
+/**
+ * Block filing a summary under the wrong lecture (e.g. graph colouring into
+ * an ODE session). Fail-open when TypeSafe is off or unsure.
+ */
+export async function screenLectureSummary(opts: {
+  summary: string;
+  lectureTitle: string;
+  conceptNames: string[];
+}): Promise<"match" | "mismatch" | "skip"> {
+  const summary = opts.summary.trim().slice(0, 2500);
+  const lectureTitle = opts.lectureTitle.trim().slice(0, 200);
+  if (!summary || !lectureTitle) return "skip";
+  const concepts = opts.conceptNames
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .join("; ");
+  const answers = await systemOne(
+    {
+      lectureTitle,
+      concepts: concepts || "(none tagged)",
+      summary,
+    },
+    {
+      onTopic: {
+        type: "noul",
+        instructions:
+          "Is `summary` a write-up of the lecture named in `lectureTitle` (and its tagged concepts), not a clearly different lecture from another course or week?",
+        criteria: {
+          true:
+            "Same topic family as the titled lecture (even if partial, shaky, or abbreviated)",
+          false:
+            "Clearly a different lecture — e.g. graph colouring filed under ODEs, hashing under number theory",
+        },
+      },
+    },
+  );
+  if (!answers) return "skip";
+  return decideLectureMatch(noulOf(answers, "onTopic"));
+}
+
 export function splitDebriefCorrections(
   corrections: string[],
   slip: Array<number | undefined>,
@@ -296,9 +344,10 @@ export async function screenQuestTopic(
       study: {
         type: "noul",
         instructions:
-          "Is `title` a CS or maths study concept (a definition, structure, technique, or theorem) that could live in a personal library?",
+          "Is `title` a CS or maths study concept that could live in a personal library? Accept definitions, structures, techniques, theorems, and field/category buckets (Cryptography, Graph theory, Probability).",
         criteria: {
-          true: "A reusable idea you can meet again in lectures",
+          true:
+            "A reusable study idea or category you can meet again in lectures (including broad fields)",
           false: "A person, place, company, sport, news item, recap lecture, or trivia",
         },
       },
@@ -334,18 +383,22 @@ export async function adequateParaphrase(
       restates: {
         type: "noul",
         instructions:
-          "Does `answer` restate the idea in `prompt` in the learner's own words, well enough to lock it in?",
+          "Does `answer` name the idea in `prompt` in the learner's own words, well enough to lock understanding — including when they disagree or contrast it with a lecture drawing?",
         criteria: {
-          true: "The correction or idea is present in their own words",
-          false: "Thin, wrong, missing, or only 'ok' / 'next' / 'lgtm'",
+          true:
+            "The correction or idea is present in their own words, even if they disagree or contrast with the lecture",
+          false:
+            "Thin, wrong, missing, only 'ok' / 'next' / 'lgtm', or a bare refusal that never surfaces the claim",
         },
       },
       question: {
         type: "noul",
-        instructions: "Is `answer` mainly a clarifying question rather than a restatement?",
+        instructions:
+          "Is `answer` mainly a clarifying question about the correction rather than stating the idea (with or without disagreement)?",
         criteria: {
-          true: "They are asking something",
-          false: "They are stating the idea",
+          true: "They are asking how something fits, not stating the claim",
+          false:
+            "They are stating the idea, including while disagreeing or contrasting with the lecture",
         },
       },
     },

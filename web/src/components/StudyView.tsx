@@ -61,6 +61,7 @@ export function StudyView({
         courseId={shownCourseId}
         onCourse={actions.onCourse}
         onInit={actions.onInitCourse}
+        loading={!catalog && !error}
         initBusy={initBusy}
         busy={busy}
         workingOn={initBusy ? "Adding the course…" : undefined}
@@ -90,6 +91,7 @@ export function StudyView({
           courseId={courseId}
           lectureN={lectureN}
           concepts={catalog?.concepts}
+          loading={!catalog && !error}
           initBusy={initBusy}
           onLecture={actions.onLecture}
           onStart={actions.onStart}

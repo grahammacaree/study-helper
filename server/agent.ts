@@ -13,6 +13,7 @@ import {
   asExample,
 } from "./learner.js";
 import { clipForAgent } from "./promptBudget.js";
+import { teachingFormatIssues } from "./teachingFormat.js";
 import { wrapStandardTex } from "./texDisplay.js";
 import type {
   ConceptTheorem,
@@ -152,8 +153,8 @@ export const DEBRIEF_INSTRUCTIONS = [
   "offeredQuests: only if his summary explicitly asks to chase a side topic (title + why). Empty otherwise. Do not upsell detours.",
   "knowledgeUpdates: one row per concept in play. known or shaky. one-line note. Inverted definition, backwards implication, or missing move → shaky. A sign flip or other arithmetic slip in the chat transcription → known (still list that slip in corrections). Spelling typos stay off the card.",
   "vocab: 0–8 {term, gloss} pairs from THIS summary. gloss is a one-line definition in his words (or a close paraphrase of what he wrote). Skip a word he named but did not characterize. Empty if this was not a vocabulary pass. Do not invent a glossary.",
-  "theorems: 0–4 {title, claim, proof} from THIS summary. Only explicitly named results that belong in a theorem library (Weak law of large numbers, Bayes' theorem, Cauchy–Schwarz, …) — the kind of thing mathlib names. title is the ordinary name of that result (required). claim is the statement. proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty proof if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are not theorems — put those in example.",
-  "example: at most one per concept, from THIS summary. Working cases and unnamed proofs: a computation, a reusable model, a special case, or a claim/proof that is not a named library theorem. Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
+  "theorems: 0–4 {title, claim, proof} from THIS summary. Only explicitly named results that belong in a theorem library (Weak law of large numbers, Bayes' theorem, Cauchy–Schwarz, Euclid's lemma, …) — the kind of thing mathlib or a textbook index names. title is that ordinary name (required). Numbered lecture lemmas (Lemma 1, Corollary 2, Proposition A) are proof subroutines — never send them as theorems. If he used them to prove a named result, fold those moves into that theorem's proof field (e.g. proof: \"Lemma 1 gcd step; Lemma 2 inverse iff coprime; cancel product\"). If they are not attached to a named result, omit them. claim is the statement. proof is the interesting moves he named — a lemma, the identity, the reduction direction — not a full TeX write-up, and not a shrug (obvious, uniqueness, by definition). Empty proof if he only named the result (host stores that as asserted). If he implied a proof but named no move, put that in corrections and leave proof empty. Never invent a proof or fill in steps he skipped. Do not send a status field. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are not theorems — put those in example.",
+  "example: at most one per concept, from THIS summary. Working cases and unnamed proofs: a computation, a reusable model, a special case, or a claim/proof that is not a named library theorem. Do not park numbered lecture lemmas here — those go in a parent theorem's proof or are omitted. Skip restating the lecturer's cartoon diagrams or numbered sketches that exist only to name vocabulary — those belong in a vocab gloss if anywhere. Never invent.",
 ].join("\n\n");
 
 export async function runDebrief(opts: {
@@ -278,10 +279,12 @@ export async function gradeTeachback(opts: {
     [
       contextBlock({ primed: opts.primed, ctx: opts.ctx }),
       "Grade Graham's paraphrase of a correction. Call publish_teachback once.",
-      "This is not an exam. adequate: he has the idea in his own words.",
+      "This is not an exam. adequate: he has the idea in his own words — understanding the claim, not endorsing it.",
       "kind: adequate | thin | question_before | question_after.",
-      "If it is a clarifying question: question_before, answer in message, stay.",
-      "Thin or wrong: kind thin, correct ONE beat in message, stay. Chill, specific.",
+      "Clarifying question about the correction: question_before, answer the substance in message (how the drawing or wording fits the claim), stay. Do not say he must restate first.",
+      "He names the correction's idea and disagrees or contrasts it with the lecture drawing: adequate. Teach-back locks that he understood the claim, not that he believes it. Never demand he restate until he agrees.",
+      "Bare refusal to restate without naming the claim: kind thin, one short line pointing at Finish to leave it shaky — no further demand to endorse.",
+      "Thin or wrong otherwise: kind thin, correct ONE beat in message, stay. Chill, specific.",
       "Every formula in $...$ or $$...$$ ($Z^{2}$, $\\sqrt{V/n}$). Never bare TeX.",
       "Do not advance on ok / next / lgtm alone — that is thin.",
       `Prompt he was answering:\n${opts.prompt}`,
@@ -450,9 +453,10 @@ export async function judgeQuestTopic(opts: {
   const run = await opts.agent.send(
     [
       "Graham wants a side quest. Call publish_quest_topic once. Stop after that.",
-      "Accept only a conceptual topic that could live in a CS/math study library: a definition, structure, technique, theorem, or similar idea.",
+      "Accept only a conceptual topic that could live in a CS/math study library: a definition, structure, technique, theorem, field, or category bucket (Cryptography, Graph theory, Probability, …).",
       "Reject recap / quiz-review / course-synthesis titles — those are lectures, not library nodes.",
       "Reject people, sports, news, companies, places, biographies, and trivia that is not a study concept.",
+      "Do not reject a real study area just because it is broad — Cryptography and Discrete mathematics are valid nodes.",
       "If the title is already a listed concept (same idea, even if the wording differs), ok true and existingId set to that id.",
       "If it is a new but real concept, ok true and name as a short Title Case label.",
       "If you reject, ok false and reason: one short sentence, no lecture.",
@@ -732,6 +736,7 @@ export async function draftConceptTeaching(opts: {
       "This is not a side quest. Do not write 'side quest', 'in this side quest', or treat the topic as a detour.",
       "Write for him, not for yourself. Cover what the idea is, when he should reach for it, and one mix-up that actually bites — but invent headings that belong to this concept. Do not recycle a house template (Mix-up worth watching, When you'd actually use this, When to reach for it). Do not write a heading about inverted definitions. Do not write '(fix once, then move on)' or similar asides.",
       "Do not start with a title — the pane already names the concept. Do not dump copyrighted notes.",
+      "Every formula in $...$ or $$...$$. Delimiters must pair — one stray $ (e.g. $|E| = $|V|$) unbalances the whole page and the host will reject it.",
       "Later lectures may add Vocabulary, Theorems, and Examples — the host appends those from his summaries. Theorems are only explicitly named library results; unnamed proofs and worked cases land under Examples.",
       "Do not write Vocabulary, Theorems, or Examples sections yourself.",
       "links: 0–3 http(s) pages that actually help. Empty is fine. Do not use http for in-app concept jumps. Do not link a course that is not in the sources list.",
@@ -790,8 +795,13 @@ export async function draftConceptTeaching(opts: {
               required: ["explanation"],
             },
             execute: (args) => {
+              const explanation = String(args.explanation);
+              const issues = teachingFormatIssues(explanation);
+              if (issues.length) {
+                return `Teaching rejected — fix format and call publish_concept_teaching again: ${issues.join("; ")}`;
+              }
               holder.value = {
-                explanation: String(args.explanation),
+                explanation,
                 links: asLinks(args.links),
                 relatedIds: asIds(args.relatedIds, allowed),
               };

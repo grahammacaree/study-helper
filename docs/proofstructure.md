@@ -8,7 +8,9 @@ A large part of that layout is **TypeSafe**, and specifically **Jev** (TypeSafe�
 
 ## Theorems vs examples
 
-**Theorems** is only for **explicitly named** results — the kind of thing mathlib (or a textbook index) would list under a proper name: Weak law of large numbers, Bayes’ theorem, Cauchy–Schwarz, Chapman–Kolmogorov. The host requires a `title` on every theorem row. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are **Examples**, even when they carry a proof sketch.
+**Theorems** is only for **explicitly named** results — the kind of thing mathlib (or a textbook index) would list under a proper name: Weak law of large numbers, Bayes’ theorem, Cauchy–Schwarz, Euclid’s lemma, Chapman–Kolmogorov. The host requires a `title` on every theorem row.
+
+**Not theorems:** numbered lecture lemmas (`Lemma 1`, `Corollary 2`, `Proposition A`) — those are proof **subroutines** for a named result (and collide across sections). Fold them into that theorem’s `proof` moves when he used them that way; otherwise **omit** them. Do not park them under Examples. Unnamed course claims (existence/uniqueness arguments, detailed balance ⇒ stationary, a worked derivation without a famous name) are **Examples**.
 
 ---
 

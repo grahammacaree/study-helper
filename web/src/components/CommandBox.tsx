@@ -6,6 +6,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { QUEST_DONE_HINT, questCanMarkDone } from "../questReady";
+import {
+  PENDING_SESSION_ID,
+  forgetComposeDraft,
+  loadComposeDraft,
+  rememberComposeDraft,
+} from "../sessionStore";
 import type { Phase, SessionSnapshot } from "../types";
 import {
   insertTex,
@@ -78,6 +84,49 @@ export function CommandBox({
     setRecentTex([]);
   }, [session?.id]);
 
+  // Persist the composer across tab discard / full remount (sessionStorage).
+  const hydrateCompose = useRef(false);
+  useEffect(() => {
+    const id = session?.id;
+    if (!id || id === PENDING_SESSION_ID) {
+      setText("");
+      return;
+    }
+    hydrateCompose.current = true;
+    setText(loadComposeDraft(id) ?? "");
+  }, [session?.id]);
+
+  useEffect(() => {
+    const id = session?.id;
+    if (!id || id === PENDING_SESSION_ID) return;
+    if (hydrateCompose.current) {
+      hydrateCompose.current = false;
+      return;
+    }
+    rememberComposeDraft(id, text);
+  }, [text, session?.id]);
+
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    restoredFor.current = null;
+  }, [session?.id]);
+  useEffect(() => {
+    const msgs = session?.messages ?? [];
+    let draft: { id: string; text: string } | undefined;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      const m = msgs[i];
+      if (m?.restoreCompose) {
+        draft = { id: m.id, text: m.restoreCompose };
+        break;
+      }
+    }
+    if (!draft || restoredFor.current === draft.id) return;
+    restoredFor.current = draft.id;
+    setText(draft.text);
+    void navigator.clipboard?.writeText(draft.text).catch(() => undefined);
+    queueMicrotask(() => field.current?.focus({ preventScroll: true }));
+  }, [session?.messages]);
+
   const phase = session?.phase;
   const textMode = canSubmitText(phase);
   const canSend = textMode && text.trim().length > 0;
@@ -96,6 +145,13 @@ export function CommandBox({
     : chips;
   const showBar = !disabled && barChips.length > 0;
   const blocked = disabled || !ready;
+
+  function sendCompose() {
+    const id = session?.id;
+    onSend(text, activeMode);
+    if (id) forgetComposeDraft(id);
+    setText("");
+  }
 
   function onResizePointer(e: ReactPointerEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -222,10 +278,7 @@ export function CommandBox({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (canSend && !blocked) {
-                    onSend(text, activeMode);
-                    setText("");
-                  }
+                  if (canSend && !blocked) sendCompose();
                 }
               }}
             />
@@ -233,10 +286,7 @@ export function CommandBox({
               <button
                 type="button"
                 disabled={blocked || !canSend}
-                onClick={() => {
-                  onSend(text, activeMode);
-                  setText("");
-                }}
+                onClick={() => sendCompose()}
               >
                 Send
               </button>

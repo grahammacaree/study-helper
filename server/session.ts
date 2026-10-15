@@ -40,6 +40,7 @@ import {
   alignKnowledgeTheorems,
   screenDebriefSlips,
   knownAfterSlips,
+  screenLectureSummary,
   screenQuizItems,
   screenQuestTopic,
 } from "./typeSafe.js";
@@ -140,11 +141,9 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+/** Course map + library chrome. Teachings load separately — ~80 notes is ~300KB. */
 export async function catalogPayload(): Promise<CatalogPayload> {
   let catalog = await loadCatalog();
-  if (await syncLectureConceptTags(catalog)) {
-    catalog = await loadCatalog();
-  }
   const learner = await loadLearner();
   const hinted = applyProgressHints(learner.progress, catalog);
   const decayed = applyDecayHints({
@@ -165,26 +164,6 @@ export async function catalogPayload(): Promise<CatalogPayload> {
     for (const { quest, id } of quested.missingIds) quest.conceptId = id;
     await saveLearner(learner);
   }
-  const unlocked = unlockedConceptIds(
-    catalog,
-    hinted.progress,
-    quested.questConceptIds,
-  );
-  const conceptTeachings = await readConceptTeachings();
-  for (const [id, text] of Object.entries(conceptTeachings)) {
-    const name = quested.concepts[id]?.name;
-    const body = name ? stripLeadingTitle(text, name) : text;
-    conceptTeachings[id] = keepUnlockedConceptLinks(body, unlocked);
-  }
-  for (const quest of learner.sideQuests) {
-    if (quest.status !== "done" || !quest.conceptId || !quest.notes.trim()) continue;
-    if (conceptTeachings[quest.conceptId]) continue;
-    await writeConceptTeaching(quest.conceptId, quest.notes, quest.title);
-    conceptTeachings[quest.conceptId] = keepUnlockedConceptLinks(
-      formatConceptTeaching(quest.title, quest.notes),
-      unlocked,
-    );
-  }
   return {
     courses: catalog.courses.map((c) => ({
       ...c,
@@ -201,8 +180,47 @@ export async function catalogPayload(): Promise<CatalogPayload> {
       (q) => q.status === "open" || q.status === "parked",
     ),
     questConceptIds: quested.questConceptIds,
-    conceptTeachings,
   };
+}
+
+/** Full teaching texts for library search / concept outline. Not on the boot path. */
+export async function conceptTeachingsPayload(): Promise<
+  Record<string, string>
+> {
+  const catalog = await loadCatalog();
+  const learner = await loadLearner();
+  const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
+  const unlocked = unlockedConceptIds(
+    catalog,
+    learner.progress,
+    quested.questConceptIds,
+  );
+  const conceptTeachings = await readConceptTeachings();
+  for (const [id, text] of Object.entries(conceptTeachings)) {
+    const name = quested.concepts[id]?.name;
+    const body = name ? stripLeadingTitle(text, name) : text;
+    conceptTeachings[id] = keepUnlockedConceptLinks(body, unlocked);
+  }
+  for (const quest of learner.sideQuests) {
+    if (quest.status !== "done" || !quest.conceptId || !quest.notes.trim()) {
+      continue;
+    }
+    if (conceptTeachings[quest.conceptId]) continue;
+    await writeConceptTeaching(quest.conceptId, quest.notes, quest.title);
+    conceptTeachings[quest.conceptId] = keepUnlockedConceptLinks(
+      formatConceptTeaching(quest.title, quest.notes),
+      unlocked,
+    );
+  }
+  return conceptTeachings;
+}
+
+/** Once per process boot (and after a new course lands). Not on every catalog GET. */
+export async function hydrateLectureConceptTags(): Promise<void> {
+  const catalog = await loadCatalog();
+  if (await syncLectureConceptTags(catalog)) {
+    /* lectures.json rewritten; cache already invalidated inside sync */
+  }
 }
 
 async function touchStudiedConcept(s: Session, id: string): Promise<void> {
@@ -1570,6 +1588,26 @@ async function nextQuiz(s: Session): Promise<void> {
 
 async function debriefSummary(s: Session, summary: string): Promise<void> {
   const ctx = await contextOf(s);
+  const conceptNames = (ctx.concepts ?? "")
+    .split("\n")
+    .map((line) => line.split(":").slice(1).join(":").trim())
+    .filter(Boolean);
+  const topicCheck = await screenLectureSummary({
+    summary,
+    lectureTitle: ctx.lectureTitle ?? "",
+    conceptNames,
+  });
+  if (topicCheck === "mismatch") {
+    const labeled = ctx.lectureTitle?.trim() || "this lecture";
+    push(s, {
+      role: "assistant",
+      kind: "status",
+      text: `That write-up does not look like **${labeled}**. Nothing was stored — your text is back in the composer (and on the clipboard if the browser allowed it). Open the matching lecture from the map, or edit and send again.`,
+      restoreCompose: summary,
+    });
+    await persist(s);
+    return;
+  }
   const { card, updates: rawUpdates } = await withAgent(s, (agent) =>
     runDebrief({ agent, primed: s.primed, ctx, summary }),
   );

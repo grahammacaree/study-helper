@@ -15,6 +15,7 @@ import type {
   TheoremStatus,
 } from "./types.js";
 import type { DecayMap } from "./decay.js";
+import { teachingFormatIssues } from "./teachingFormat.js";
 
 const MAX_FILE_CHARS = 16_000;
 
@@ -171,8 +172,10 @@ export function parseKnowledge(markdown: string): KnowledgeEntry[] {
       if (parsed) {
         cur.theorems = [...(cur.theorems ?? []), parsed];
       } else {
-        const loose = normalizeTheorem({ claim: theorem[2] });
-        if (loose) {
+        const { title, claim } = splitTitleClaim(theorem[2]);
+        if (title && !isLibraryTheoremTitle(title)) continue;
+        const loose = normalizeTheorem({ title, claim });
+        if (loose && !loose.title?.trim()) {
           const ex = formatTheoremExample(loose);
           if (!asExample(cur.example)) cur.example = ex;
         }
@@ -497,8 +500,14 @@ export function parseTeachingPasses(text: string): {
     if (!block) return;
     const parsed = parseTheoremBlock(block);
     if (!parsed) return;
-    if (parsed.title?.trim()) theorems.push(parsed);
-    else examples.push(formatTheoremExample(parsed));
+    if (parsed.title?.trim() && isLibraryTheoremTitle(parsed.title)) {
+      theorems.push(parsed);
+    } else if (!parsed.title?.trim()) {
+      // Untitled course claims can still land as Examples.
+      examples.push(formatTheoremExample(parsed));
+    }
+    // Numbered lecture lemmas (Lemma 1, …) are dropped — they belong as
+    // moves under a named theorem, not as standalone Examples.
   };
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
@@ -646,27 +655,48 @@ function usableExample(raw: string | undefined): string | undefined {
   return t;
 }
 
+/**
+ * Theorems need a citable library name (WLLN, Bayes, Euclid's lemma).
+ * Numbered lecture lemmas (Lemma 1, Corollary 2) are proof subroutines → Examples.
+ */
+export function isLibraryTheoremTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  // Lemma 1, Corollary 2a, Proposition A, Claim 3 (gcd …) — section-local labels.
+  if (
+    /^(lemma|corollary|proposition|claim|fact|exercise)\s*[\dA-Z]\b/i.test(t)
+  ) {
+    return false;
+  }
+  if (/^(lemma|corollary|proposition|claim|fact)\s*$/i.test(t)) return false;
+  return true;
+}
+
 function asStoredTheorem(
   statusRaw: string | undefined,
   claimRaw: string,
 ): ConceptTheorem | undefined {
   const { title, claim } = splitTitleClaim(claimRaw);
   const parsed = normalizeTheorem({ title, claim });
-  if (!parsed?.title) return undefined;
+  if (!parsed?.title?.trim() || !isLibraryTheoremTitle(parsed.title)) {
+    return undefined;
+  }
   if (statusRaw?.toLowerCase() === "proved" && !parsed.proof) {
     return { ...parsed, status: "proved" };
   }
   return parsed;
 }
 
-/** Turn an untitled claim/proof into an Examples bullet. */
+/** Turn an untitled / lecture-lemma claim into an Examples bullet. */
 export function formatTheoremExample(
   th: Pick<ConceptTheorem, "claim" | "proof"> & { title?: string },
 ): string {
+  const title = th.title?.trim();
   const claim = th.claim.trim();
+  const head = title ? `${title}: ${claim}` : claim;
   const proof = th.proof?.trim();
-  if (proof) return `${claim} Proof: ${proof}`.slice(0, 800);
-  return claim.slice(0, 800);
+  if (proof) return `${head} Proof: ${proof}`.slice(0, 800);
+  return head.slice(0, 800);
 }
 
 function splitTitleClaim(raw: string): { title?: string; claim: string } {
@@ -688,8 +718,13 @@ function splitNamedTheorems(
     const parsed =
       typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
     if (!parsed) continue;
-    if (parsed.title?.trim()) named.push(parsed);
-    else examples.push(formatTheoremExample(parsed));
+    if (parsed.title?.trim() && isLibraryTheoremTitle(parsed.title)) {
+      named.push(parsed);
+    } else if (!parsed.title?.trim()) {
+      examples.push(formatTheoremExample(parsed));
+    }
+    // Numbered lecture lemmas are discarded here — fold them into a parent
+    // theorem's proof moves at debrief time, don't keep a parallel Example.
   }
   return { named, examples };
 }
@@ -883,12 +918,12 @@ function mergeTheorems(
   const byKey = new Map<string, ConceptTheorem>();
   for (const row of prior) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
-    if (!parsed?.title?.trim()) continue;
+    if (!parsed?.title?.trim() || !isLibraryTheoremTitle(parsed.title)) continue;
     byKey.set(theoremKey(parsed.claim, parsed.title), parsed);
   }
   for (const row of next) {
     const parsed = typeof row === "string" ? parseTheoremBullet(row) : normalizeTheorem(row);
-    if (!parsed?.title?.trim()) continue;
+    if (!parsed?.title?.trim() || !isLibraryTheoremTitle(parsed.title)) continue;
     const key = theoremKey(parsed.claim, parsed.title);
     const old = byKey.get(key);
     if (old) byKey.set(key, combineTheorems(old, parsed));
@@ -1005,6 +1040,7 @@ export async function writeConceptTeaching(
   if (!isSafeConceptFileId(id)) return;
   const body = formatConceptTeaching(title, notes);
   if (!body) return;
+  if (teachingFormatIssues(body).length) return;
   const path = conceptTeachingPath(id);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, clip(body), "utf8");
@@ -1226,7 +1262,8 @@ export function knowledgeSlice(
 }
 
 export function clip(text: string, max = MAX_FILE_CHARS): string {
-  const t = text.trim();
+  // Stray ESC/C0 before TeX (e.g. `\x1b\phi`) makes KaTeX paint red errors.
+  const t = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim();
   if (t.length <= max) return `${t}\n`;
   return `${t.slice(0, max)}\n\n…[truncated]\n`;
 }

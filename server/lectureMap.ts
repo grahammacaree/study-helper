@@ -85,7 +85,7 @@ function isEmbeddedName(title: string, id: string, name: string): boolean {
   return needles.some((n) => t.includes(n) && !foldedHas(t, n));
 }
 
-/** Leaf tags a lecture title clearly names. Continuation inherits `prior`. */
+/** Leaf or category tags a lecture title clearly names. Continuation inherits `prior`. */
 export function suggestedConceptIds(
   title: string,
   concepts: Record<string, ConceptDef>,
@@ -95,9 +95,12 @@ export function suggestedConceptIds(
   const scored: { id: string; score: number }[] = [];
   for (const [id, def] of Object.entries(concepts)) {
     if (!isStudyConcept(def.name, id)) continue;
-    if (!def.parentId) continue;
     const score = scoreTitle(title, id, def.name);
-    if (score > 0) scored.push({ id, score });
+    if (score <= 0) continue;
+    // Category roots need a clear name hit; do not skip them entirely —
+    // Cryptography / Probability are real tags when the title says so.
+    if (!def.parentId && score < 14) continue;
+    scored.push({ id, score });
   }
   scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
   const ids = scored
@@ -134,15 +137,14 @@ export function mergeLectureConceptIds(
     out.push(id);
   };
   for (const id of suggested) add(id);
+  // Keep curated tags the title does not name (e.g. Cryptography on
+  // "Number theory II"). Only drop embedded false positives like
+  // `geometric` inside `geometrical`.
   for (const id of existing) {
     const def = concepts[id];
     if (!def) continue;
-    if (title) {
-      const score = scoreTitle(title, id, def.name);
-      if (score <= 0) {
-        if (suggested.length) continue;
-        if (isEmbeddedName(title, id, def.name)) continue;
-      }
+    if (title && isEmbeddedName(title, id, def.name) && scoreTitle(title, id, def.name) <= 0) {
+      continue;
     }
     add(id);
   }

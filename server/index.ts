@@ -6,9 +6,11 @@ import {
   answerQuizChoice,
   cancelWork,
   catalogPayload,
+  conceptTeachingsPayload,
   finishQuest,
   finishSession,
   getSession,
+  hydrateLectureConceptTags,
   nextAfterQuestion,
   pickCourse,
   quitSession,
@@ -47,6 +49,14 @@ app.get("/api/auth", async (_req, res) => {
 app.get("/api/catalog", async (_req, res) => {
   try {
     res.json(await catalogPayload());
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/concept-teachings", async (_req, res) => {
+  try {
+    res.json(await conceptTeachingsPayload());
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -154,8 +164,15 @@ app.post(
   }),
 );
 
-void restoreSessions().then(() => {
-  app.listen(serverPort(), "127.0.0.1", () => {
-    console.log(`Study helper API on http://127.0.0.1:${serverPort()}`);
-  });
+app.listen(serverPort(), "127.0.0.1", () => {
+  console.log(`Study helper API on http://127.0.0.1:${serverPort()}`);
+  // Hydrate after listen so the first /api/catalog is not blocked on disk/tags.
+  void restoreSessions()
+    .then(() => hydrateLectureConceptTags())
+    .catch((err) => {
+      console.error(
+        "Startup hydrate failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
 });

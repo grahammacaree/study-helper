@@ -3,6 +3,7 @@ import {
   decideAdequate,
   decideDropCalc,
   decideLeanPick,
+  decideLectureMatch,
   decideQuestScreen,
   decideRemapIndex,
   decideScreenQuiz,
@@ -81,6 +82,24 @@ if (unsure) fail("a middling verdict should fall through to the agent");
 if (!decideAdequate(0.8, 0.1)) fail("a restatement that is not a question is adequate");
 if (decideAdequate(0.8, 0.8)) fail("a clarifying question is not adequate");
 if (decideAdequate(0.4, 0.1)) fail("a thin restatement is not adequate");
+// Disagreement-with-articulation: TypeSafe restates=yes, question=no → adequate
+// (live criterion lives in adequateParaphrase; decideAdequate stays the gate).
+if (!decideAdequate(0.85, 0.2)) {
+  fail("naming the claim while disagreeing should still decide adequate");
+}
+
+if (decideLectureMatch(0.15) !== "mismatch") {
+  fail("clearly off-topic summary should mismatch");
+}
+if (decideLectureMatch(0.9) !== "match") {
+  fail("on-topic summary should match");
+}
+if (decideLectureMatch(0.5) !== "skip") {
+  fail("unsure topic match should fail open");
+}
+if (decideLectureMatch(undefined) !== "skip") {
+  fail("missing TypeSafe answer should fail open");
+}
 if (noulYes(0.69)) fail("0.69 is not a yes");
 if (!noulNo(0.35)) fail("0.35 is a no");
 

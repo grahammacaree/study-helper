@@ -1,6 +1,7 @@
 import {
   asExample,
   applyKnowledgePasses,
+  isLibraryTheoremTitle,
   isProofSketch,
   mergeTeachingPasses,
   parseKnowledge,
@@ -224,6 +225,96 @@ if (demoted?.theorems?.length) {
 }
 if (!/unique stationary/i.test(demoted?.example ?? "")) {
   fail("untitled theorem rows should demote to the example field");
+}
+
+if (isLibraryTheoremTitle("Lemma 1 (gcd reduction step)")) {
+  fail("numbered lecture lemmas are not library theorem titles");
+}
+if (isLibraryTheoremTitle("Corollary 2")) {
+  fail("numbered corollaries are not library theorem titles");
+}
+if (!isLibraryTheoremTitle("Euclid's lemma")) {
+  fail("famous named lemmas stay library theorems");
+}
+if (!isLibraryTheoremTitle("Weak law of large numbers")) {
+  fail("ordinary theorem names stay library theorems");
+}
+
+const lemmaDemote = upsertKnowledge(
+  [],
+  [
+    {
+      id: "number-theory",
+      status: "known",
+      note: "n",
+      theorems: [
+        {
+          title: "Lemma 1 (gcd reduction step)",
+          claim:
+            "$\\gcd(a,b)=\\gcd(\\mathrm{rem}(b,a),a)$ when dividing $b$ by $a$.",
+          status: "proved",
+          proof: "Common divisors are unchanged both ways.",
+        },
+        {
+          title: "Euclid's algorithm correctness",
+          claim: "Euclid returns $\\gcd(a,b)$.",
+          status: "asserted",
+        },
+      ],
+    },
+  ],
+).find((e) => e.id === "number-theory");
+if (lemmaDemote?.theorems?.some((t) => /Lemma 1/i.test(t.title ?? ""))) {
+  fail("Lemma 1 must not stay under Theorems");
+}
+if (!lemmaDemote?.theorems?.some((t) => /Euclid/i.test(t.title ?? ""))) {
+  fail("a real named result should still land under Theorems");
+}
+if (/Lemma 1/i.test(lemmaDemote?.example ?? "")) {
+  fail("Lemma 1 must not be parked as an example either");
+}
+
+const lemmaTeaching = mergeTeachingPasses("Number theory.", {
+  theorems: [
+    {
+      title: "Lemma 2 (inverse iff coprime)",
+      claim: "$\\gcd(n,k)=1$ iff $k$ has a multiplicative inverse mod $n$.",
+      status: "proved",
+      proof: "Bezout coefficients.",
+    },
+  ],
+});
+if (lemmaTeaching.includes("## Theorems") || lemmaTeaching.includes("## Examples")) {
+  fail("a numbered lemma should be dropped, not kept as theorem or example");
+}
+if (/Lemma 2/i.test(lemmaTeaching)) {
+  fail("a numbered lemma must not survive on the teaching page");
+}
+
+const nestedMoves = upsertKnowledge(
+  [],
+  [
+    {
+      id: "number-theory",
+      status: "known",
+      note: "n",
+      theorems: [
+        {
+          title: "Euler's theorem",
+          claim: "If $\\gcd(k,n)=1$ then $k^{\\phi(n)}\\equiv 1\\pmod n$.",
+          status: "proved",
+          proof:
+            "Lemma 1 cancellation; Lemma 2 inverse iff coprime; Lemma 3 bijection on residues; cancel the product.",
+        },
+      ],
+    },
+  ],
+).find((e) => e.id === "number-theory");
+if (
+  nestedMoves?.theorems?.[0]?.title !== "Euler's theorem" ||
+  !/Lemma 1/i.test(nestedMoves.theorems[0].proof ?? "")
+) {
+  fail("lecture lemmas should live as moves under the named theorem's proof");
 }
 
 const provedLater = upsertKnowledge(thmRound, [

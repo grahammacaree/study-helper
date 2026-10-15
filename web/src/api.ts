@@ -46,6 +46,10 @@ export function getCatalog(): Promise<CatalogPayload> {
   return call<CatalogPayload>("/api/catalog");
 }
 
+export function getConceptTeachings(): Promise<Record<string, string>> {
+  return call<Record<string, string>>("/api/concept-teachings");
+}
+
 export function initCourse(url: string): Promise<{
   course: { id: string; title: string };
   lectureCount: number;

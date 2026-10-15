@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { api, createSession, getAuth, getCatalog, getSession, initCourse } from "./api";
+import {
+  api,
+  createSession,
+  getAuth,
+  getCatalog,
+  getConceptTeachings,
+  getSession,
+  initCourse,
+} from "./api";
 import type { ChipAction } from "./components/CommandBox";
 import { StudyView } from "./components/StudyView";
 import {
@@ -34,19 +42,47 @@ export function App() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    getAuth()
-      .then(setAuth)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
-    getCatalog()
-      .then((c) => {
-        setCatalog(c);
-        setCourseId((id) => id ?? c.courses[0]?.id ?? null);
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+    let cancelled = false;
+    void (async () => {
+      // Vite can answer before the API binds after `npm run dev` — retry so a
+      // single proxy 500 does not leave an empty shell until hard refresh.
+      // Auth hits Cursor and is best-effort; do not block the course map on it.
+      void getAuth()
+        .then((a) => {
+          if (!cancelled) setAuth(a);
+        })
+        .catch(() => undefined);
+      for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
+        try {
+          const c = await getCatalog();
+          if (cancelled) return;
+          setCatalog(c);
+          setCourseId((id) => id ?? c.courses[0]?.id ?? null);
+          setError(null);
+          // Teachings are large; merge after the course map is already up.
+          void getConceptTeachings()
+            .then((teachings) => {
+              if (cancelled) return;
+              setCatalog((cur) =>
+                cur ? { ...cur, conceptTeachings: teachings } : cur,
+              );
+            })
+            .catch(() => undefined);
+          return;
+        } catch (err) {
+          if (attempt >= 7) {
+            if (!cancelled) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -126,7 +162,14 @@ export function App() {
         rememberCourse(snap.courseId);
       }
       if (!opts?.quiet) {
-        void getCatalog().then(setCatalog).catch(() => undefined);
+        void getCatalog()
+          .then((c) =>
+            setCatalog((cur) => ({
+              ...c,
+              conceptTeachings: cur?.conceptTeachings,
+            })),
+          )
+          .catch(() => undefined);
       }
       return snap;
     } catch (err) {
@@ -157,7 +200,14 @@ export function App() {
       forgetSession();
       setSession(null);
       setError(null);
-      void getCatalog().then(setCatalog).catch(() => undefined);
+      void getCatalog()
+        .then((c) =>
+          setCatalog((cur) => ({
+            ...c,
+            conceptTeachings: cur?.conceptTeachings,
+          })),
+        )
+        .catch(() => undefined);
       return;
     }
     if (!session) return;
