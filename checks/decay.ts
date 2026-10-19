@@ -18,9 +18,11 @@ function fail(why: string): void {
 
 const catalog = await loadCatalog();
 const now = Date.UTC(2026, 8, 12);
+// algorithms-6006 lecture 9 is only `bfs` (previously). 6.042 lecture 6 is
+// only `graph-theory` (currently), and that node seeAlso bfs.
 const progress: Record<string, Record<string, LectureStatus>> = {
-  "learning-from-data": { "2": "complete" },
-  "stat-110": { "28": "complete", "29": "complete" },
+  "algorithms-6006": { "9": "complete" },
+  "math-for-cs-6042": { "6": "complete" },
 };
 
 const { decay } = applyDecayHints({
@@ -30,26 +32,26 @@ const { decay } = applyDecayHints({
   now,
 });
 
-const hoeffding = decay.hoeffding;
-const chebyshev = decay.chebyshev;
-if (!hoeffding?.directAt) fail("hoeffding should be seeded from LFD");
-if (!chebyshev?.directAt) fail("chebyshev should be seeded from Stat 110");
-if (!hoeffding.seeded || !chebyshev.seeded) fail("historical dates are seeds, not sessions");
+const older = decay.bfs;
+const newer = decay["graph-theory"];
+if (!older?.directAt) fail("bfs should be seeded from Algorithms");
+if (!newer?.directAt) fail("graph-theory should be seeded from 6.042");
+if (!older.seeded || !newer.seeded) fail("historical dates are seeds, not sessions");
 
-const hoeffAge = (now - (hoeffding.directAt ?? 0)) / DAY_MS;
-const chebAge = (now - (chebyshev.directAt ?? 0)) / DAY_MS;
-if (Math.abs(hoeffAge - SEED_PREVIOUS_DAYS) > 0.5) {
-  fail(`hoeffding seed age ${hoeffAge}, expected ${SEED_PREVIOUS_DAYS}`);
+const olderAge = (now - (older.directAt ?? 0)) / DAY_MS;
+const newerAge = (now - (newer.directAt ?? 0)) / DAY_MS;
+if (Math.abs(olderAge - SEED_PREVIOUS_DAYS) > 0.5) {
+  fail(`bfs seed age ${olderAge}, expected ${SEED_PREVIOUS_DAYS}`);
 }
-if (Math.abs(chebAge - SEED_CURRENT_DAYS) > 0.5) {
-  fail(`chebyshev seed age ${chebAge}, expected ${SEED_CURRENT_DAYS}`);
+if (Math.abs(newerAge - SEED_CURRENT_DAYS) > 0.5) {
+  fail(`graph-theory seed age ${newerAge}, expected ${SEED_CURRENT_DAYS}`);
 }
 
-const echo = hoeffding.echoes.find((e) => e.via === "chebyshev");
-if (!echo) fail("Chebyshev should echo onto Hoeffding");
+const echo = older.echoes.find((e) => e.via === "graph-theory");
+if (!echo) fail("graph-theory should echo onto bfs");
 
-const withoutEcho = entryFreshness({ ...hoeffding, echoes: [] }, now);
-const withEcho = entryFreshness(hoeffding, now);
+const withoutEcho = entryFreshness({ ...older, echoes: [] }, now);
+const withEcho = entryFreshness(older, now);
 if (withEcho <= withoutEcho) {
   fail("echo must raise freshness above the months-old direct study");
 }
@@ -59,5 +61,5 @@ if (withEcho > withoutEcho + ECHO_WEIGHT + 0.01) {
 
 if (failures) throw new Error(`${failures} decay check(s) failed`);
 console.log(
-  `ok hoeffding freshness ${withEcho.toFixed(3)} (direct-only ${withoutEcho.toFixed(3)}), echoed via chebyshev`,
+  `ok bfs freshness ${withEcho.toFixed(3)} (direct-only ${withoutEcho.toFixed(3)}), echoed via graph-theory`,
 );

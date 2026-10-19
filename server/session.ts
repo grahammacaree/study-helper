@@ -51,6 +51,7 @@ import {
   knowledgeSlice,
   loadLearner,
   matchOpenQuest,
+  listConceptTeachingIds,
   readConceptTeachings,
   readLectureSummary,
   recordQuiz,
@@ -77,6 +78,7 @@ import { lecturesForConcept, coursesForConcept, unlockedConceptIds } from "./lib
 import { syncLectureConceptTags } from "./lectureMap.js";
 import { conceptsFromDoneQuests, matchExistingConcept, slugConceptId } from "./questConcept.js";
 import {
+  debriefQuizBlurb,
   hitConceptIds,
   pickCourseReview,
   pickDebriefMix,
@@ -180,6 +182,7 @@ export async function catalogPayload(): Promise<CatalogPayload> {
       (q) => q.status === "open" || q.status === "parked",
     ),
     questConceptIds: quested.questConceptIds,
+    teachingIds: await listConceptTeachingIds(),
   };
 }
 
@@ -206,7 +209,12 @@ export async function conceptTeachingsPayload(): Promise<
       continue;
     }
     if (conceptTeachings[quest.conceptId]) continue;
-    await writeConceptTeaching(quest.conceptId, quest.notes, quest.title);
+    const rejected = await writeConceptTeaching(
+      quest.conceptId,
+      quest.notes,
+      quest.title,
+    );
+    if (rejected) continue;
     conceptTeachings[quest.conceptId] = keepUnlockedConceptLinks(
       formatConceptTeaching(quest.title, quest.notes),
       unlocked,
@@ -722,7 +730,14 @@ export async function finishQuest(
         { courseId: s.courseId, lectureN: s.lectureN },
       );
       if (done.notes.trim()) {
-        await writeConceptTeaching(done.conceptId, done.notes, done.title);
+        const rejected = await writeConceptTeaching(
+          done.conceptId,
+          done.notes,
+          done.title,
+        );
+        if (rejected) {
+          throw new Error(`Notes not saved: ${rejected}`);
+        }
       }
     }
     await saveLearner(learner);
@@ -1301,7 +1316,14 @@ async function openConcept(s: Session): Promise<void> {
   );
   if (stale()) return;
   if (unlocked.has(id) && cleaned !== (stored?.trim() ?? "")) {
-    await writeConceptTeaching(id, cleaned, def.name);
+    const rejected = await writeConceptTeaching(id, cleaned, def.name);
+    if (rejected) {
+      push(s, {
+        role: "assistant",
+        kind: "status",
+        text: `Not saved to the library: ${rejected}`,
+      });
+    }
   }
   if (stale()) return;
   body = cleaned;
@@ -1498,6 +1520,7 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
     const hitSet = new Set(hits);
     const mode = s.quizMode ?? (s.lectureN == null ? "review" : "after_debrief");
     s.quizMode = mode;
+    let related: string[] = [];
     if (mode === "review" || mode === "course_end") {
       const courseHits = hitConceptIds(catalog, hinted.progress, s.courseId);
       s.quizQueue = pickCourseReview(
@@ -1507,7 +1530,7 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
       );
     } else {
       const lecture = lectureOf(catalog, s.courseId, s.lectureN as number);
-      const related = relatedToLecture(catalog, lecture.conceptIds, hitSet);
+      related = relatedToLecture(catalog, lecture.conceptIds, hitSet);
       const cold = hits
         .slice()
         .sort(
@@ -1529,6 +1552,7 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
     );
     s.kind = "quiz";
     s.phase = "quiz_item";
+    const bankIds = s.quizBank.map((item) => item.conceptId);
     push(s, {
       role: "assistant",
       kind: "status",
@@ -1537,7 +1561,7 @@ async function writeAndEmitQuiz(s: Session): Promise<void> {
           ? `Course review: ${s.quizBank.length} concept${s.quizBank.length === 1 ? "" : "s"} from this course, weighted toward the ones that do more work here. Multiple choice, no timer.`
           : mode === "review"
           ? `Review: ${s.quizBank.length} concept${s.quizBank.length === 1 ? "" : "s"} from this course. Multiple choice, no timer.`
-          : `Five questions: three from this lecture, two from things going cold. Multiple choice, no timer.`,
+          : debriefQuizBlurb(bankIds, related),
     });
     await emitQuizItem(s);
 }
@@ -1816,7 +1840,7 @@ async function finishDebrief(
     push(s, {
       role: "assistant",
       kind: "status",
-      text: "Five questions to close the debrief: three from this lecture, two from things going cold. Concepts, not calculations.",
+      text: "Closing the debrief with a short concept quiz — not calculations.",
     });
     await persist(s);
     await writeAndEmitQuiz(s);
@@ -1854,7 +1878,12 @@ async function foldTeachingPasses(
     const stored = teachings[id]?.trim();
     if (!stored) continue;
     const next = applyKnowledgePasses(stored, byId.get(id));
-    if (next !== stored) await writeConceptTeaching(id, next);
+    if (next !== stored) {
+      const rejected = await writeConceptTeaching(id, next);
+      if (rejected) {
+        throw new Error(`Teaching for ${id} not saved: ${rejected}`);
+      }
+    }
   }
 }
 

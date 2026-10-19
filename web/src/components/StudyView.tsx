@@ -21,6 +21,7 @@ export interface StudyActions {
   onPickQuiz: (choiceId: string) => void;
   onPickCourse: (url: string) => void;
   onConcept: (id: string) => void;
+  onSearchLibrary?: () => void;
 }
 
 export function StudyView({
@@ -107,6 +108,7 @@ export function StudyView({
         onToggle={() => setConceptsOpen((v) => !v)}
         activeConceptId={session?.kind === "concept" ? session.conceptId : null}
         onConcept={actions.onConcept}
+        onSearch={actions.onSearchLibrary}
       />
     </div>
   );

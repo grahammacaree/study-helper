@@ -111,13 +111,41 @@ export function pickDebriefMix(opts: {
   }
   const used = new Set(local);
   const decay: string[] = [];
+  // Prefer two cold hits; if the lecture only tagged one concept, top up
+  // with more cold so the closing quiz still aims for MAX_QUIZ.
+  const coldBudget = Math.max(DEBRIEF_DECAY, MAX_QUIZ - local.length);
   for (const id of opts.decayed) {
-    if (decay.length >= DEBRIEF_DECAY) break;
+    if (decay.length >= coldBudget) break;
     if (used.has(id)) continue;
     used.add(id);
     decay.push(id);
   }
   return [...local, ...decay];
+}
+
+/** Status line after the host has the real queue (and any screening drops). */
+export function debriefQuizBlurb(
+  queue: string[],
+  related: string[],
+): string {
+  const relatedSet = new Set(related);
+  const localN = queue.filter((id) => relatedSet.has(id)).length;
+  const coldN = queue.length - localN;
+  const n = queue.length;
+  if (n <= 0) return "Concept quiz. Multiple choice, no timer.";
+  const bits: string[] = [];
+  if (localN) {
+    bits.push(
+      `${localN} from this lecture`,
+    );
+  }
+  if (coldN) {
+    bits.push(
+      `${coldN} from things going cold`,
+    );
+  }
+  const mix = bits.length ? `: ${bits.join(", ")}` : "";
+  return `${n} question${n === 1 ? "" : "s"} to close the debrief${mix}. Concepts, not calculations. Multiple choice, no timer.`;
 }
 
 export function pickCourseReview(

@@ -1,5 +1,6 @@
 import {
   DEBRIEF_QUIZ_P,
+  debriefQuizBlurb,
   importanceForCourse,
   pickCourseReview,
   pickDebriefMix,
@@ -29,10 +30,31 @@ if (mix.length > 5) fail("debrief mix longer than 5");
 
 const shortLocal = pickDebriefMix({
   related: ["hashing"],
-  decayed: ["hoeffding", "chebyshev"],
+  decayed: ["hoeffding", "chebyshev", "bfs", "dfs", "avl"],
 });
 if (shortLocal[0] !== "hashing") fail("keeps the lecture concept");
-if (shortLocal.length !== 3) fail(`short lecture should be 1+2, got ${shortLocal.length}`);
+if (shortLocal.length !== 5) {
+  fail(`short lecture should top up cold to 5, got ${shortLocal.length}`);
+}
+if (shortLocal.slice(1).join(",") !== "hoeffding,chebyshev,bfs,dfs") {
+  fail(`cold top-up order wrong: ${shortLocal.slice(1)}`);
+}
+const scarceCold = pickDebriefMix({
+  related: ["hashing"],
+  decayed: ["hoeffding"],
+});
+if (scarceCold.length !== 2) {
+  fail(`scarce cold should be 1+1, got ${scarceCold.length}`);
+}
+const blurb = debriefQuizBlurb(
+  ["hashing", "hoeffding", "chebyshev"],
+  ["hashing", "sorting"],
+);
+if (!blurb.startsWith("3 questions")) fail(`blurb count: ${blurb}`);
+if (!blurb.includes("1 from this lecture") || !blurb.includes("2 from things going cold")) {
+  fail(`blurb mix: ${blurb}`);
+}
+if (blurb.includes("Five")) fail("blurb must not hardcode Five");
 
 const review = pickCourseReview(
   ["svd", "eigen", "svd", "projections", "subspaces", "geometry-equations"],

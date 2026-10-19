@@ -224,6 +224,8 @@ export interface CatalogPayload {
   decay: Record<string, DecayView>;
   openQuests: SideQuest[];
   questConceptIds: string[];
+  /** Ids that have a teaching file. Bodies load when library search needs them. */
+  teachingIds?: string[];
   conceptTeachings?: Record<string, string>;
 }
 

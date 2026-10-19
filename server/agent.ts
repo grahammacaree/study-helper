@@ -50,6 +50,10 @@ export function advancePriming(primed: AgentPriming): void {
   primed.walkContext = true;
 }
 
+let authCache:
+  | { key: string; value: { configured: boolean; models?: string[]; error?: string } }
+  | undefined;
+
 export async function authStatus(): Promise<{
   configured: boolean;
   models?: string[];
@@ -57,9 +61,12 @@ export async function authStatus(): Promise<{
 }> {
   const apiKey = cursorApiKey();
   if (!apiKey) return { configured: false };
+  if (authCache?.key === apiKey && !authCache.value.error) return authCache.value;
   try {
     const models = await Cursor.models.list({ apiKey });
-    return { configured: true, models: models.map((m) => m.id).slice(0, 20) };
+    const value = { configured: true, models: models.map((m) => m.id).slice(0, 20) };
+    authCache = { key: apiKey, value };
+    return value;
   } catch (err) {
     return {
       configured: true,

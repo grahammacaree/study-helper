@@ -40,6 +40,19 @@ export function App() {
   const [lectureN, setLectureN] = useState<number | null>(null);
   const [initBusy, setInitBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const teachingsReq = useRef(false);
+
+  function ensureTeachings(): void {
+    if (teachingsReq.current) return;
+    teachingsReq.current = true;
+    void getConceptTeachings()
+      .then((teachings) => {
+        setCatalog((cur) => (cur ? { ...cur, conceptTeachings: teachings } : cur));
+      })
+      .catch(() => {
+        teachingsReq.current = false;
+      });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -59,15 +72,6 @@ export function App() {
           setCatalog(c);
           setCourseId((id) => id ?? c.courses[0]?.id ?? null);
           setError(null);
-          // Teachings are large; merge after the course map is already up.
-          void getConceptTeachings()
-            .then((teachings) => {
-              if (cancelled) return;
-              setCatalog((cur) =>
-                cur ? { ...cur, conceptTeachings: teachings } : cur,
-              );
-            })
-            .catch(() => undefined);
           return;
         } catch (err) {
           if (attempt >= 7) {
@@ -420,7 +424,8 @@ export function App() {
             return;
           }
           const stored = Boolean(
-            catalog.conceptTeachings?.[conceptId]?.trim(),
+            catalog.teachingIds?.includes(conceptId) ||
+              catalog.conceptTeachings?.[conceptId]?.trim(),
           );
           const reuseId =
             session?.kind === "concept" &&
@@ -452,6 +457,7 @@ export function App() {
             { quiet: stored },
           );
         },
+        onSearchLibrary: ensureTeachings,
       }}
     />
   );
@@ -567,7 +573,10 @@ function pendingConceptSession(opts: {
   inspect?: InspectPayload;
 }): SessionSnapshot {
   const def = opts.catalog.concepts[opts.conceptId];
-  const stored = opts.catalog.conceptTeachings?.[opts.conceptId]?.trim();
+  const teaching = opts.catalog.conceptTeachings?.[opts.conceptId]?.trim();
+  const stored = Boolean(
+    teaching || opts.catalog.teachingIds?.includes(opts.conceptId),
+  );
   return {
     id: opts.sessionId ?? PENDING_SESSION_ID,
     kind: "concept",
@@ -579,13 +588,13 @@ function pendingConceptSession(opts: {
     quizQueue: [],
     coveredConcepts: [],
     inspect: inspectFallback(opts.catalog, opts.courseId, opts.inspect),
-    messages: stored
+    messages: teaching
       ? [
           {
             id: `concept-teaching:${opts.conceptId}`,
             role: "assistant",
             kind: "text",
-            text: stored,
+            text: teaching,
             at: Date.now(),
           },
         ]
@@ -594,7 +603,7 @@ function pendingConceptSession(opts: {
             id: "generating",
             role: "assistant",
             kind: "status",
-            text: "Generating text…",
+            text: stored ? "Opening notes…" : "Generating text…",
             at: Date.now(),
           },
         ],

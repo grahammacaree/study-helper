@@ -191,6 +191,7 @@ export interface CatalogPayload {
   decay: Record<string, DecayView>;
   openQuests: SideQuest[];
   questConceptIds?: string[];
+  teachingIds?: string[];
   conceptTeachings?: Record<string, string>;
 }
 

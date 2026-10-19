@@ -4,6 +4,7 @@ import {
   isLibraryTheoremTitle,
   isProofSketch,
   mergeTeachingPasses,
+  clip,
   parseKnowledge,
   parseTeachingPasses,
   renderKnowledge,
@@ -559,6 +560,12 @@ if (stacked.indexOf("$$") >= 0 && stacked.includes("\\end{gathered}\\begin{gathe
 const rows = wrapStandardTex("\\begin{gathered}a\\\\b\\end{gathered}");
 if ((rows.match(/\$\$/g) ?? []).length !== 4) {
   fail("gathered \\\\ rows should become two display maths");
+}
+
+const clipped = clip(["ok $a$.", "open $ only", "tail"].join("\n"), 16);
+if (!clipped.startsWith("ok $a$.")) fail("clip should keep the balanced line");
+if (clipped.includes("open")) {
+  fail("clip should walk back past a line that leaves $ unclosed");
 }
 
 if (failures) throw new Error(`${failures} knowledge check(s) failed`);

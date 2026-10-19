@@ -28,6 +28,7 @@ export function ConceptsPane({
   onToggle,
   activeConceptId,
   onConcept,
+  onSearch,
 }: {
   inspect: InspectPayload | null;
   catalog?: CatalogPayload | null;
@@ -37,6 +38,7 @@ export function ConceptsPane({
   onToggle: () => void;
   activeConceptId?: string | null;
   onConcept?: (id: string) => void;
+  onSearch?: () => void;
 }) {
   const lecture =
     inspect?.lecture ??
@@ -67,6 +69,10 @@ export function ConceptsPane({
     catalog?.conceptTeachings ?? {},
   );
   const searching = query.trim().length >= 2;
+
+  useEffect(() => {
+    if (searching) onSearch?.();
+  }, [searching, onSearch]);
 
   useEffect(() => {
     setOpenIds((prior) => {

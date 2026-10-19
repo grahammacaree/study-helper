@@ -140,7 +140,9 @@ export function renderKnowledge(entries: KnowledgeEntry[]): string {
     }
     parts.push("");
   }
-  return clip(parts.join("\n"));
+  // The agent reads a slice. Clipping this file drops concept rows and can
+  // cut a `$` span, which then breaks every later formula on the page.
+  return `${parts.join("\n").trim()}\n`;
 }
 
 export function parseKnowledge(markdown: string): KnowledgeEntry[] {
@@ -1032,18 +1034,21 @@ export function applyKnowledgePasses(
   return mergeTeachingPasses(text, pass);
 }
 
+/** Undefined when the file was written. A string is why it was not. */
 export async function writeConceptTeaching(
   id: string,
   notes: string,
   title = "",
-): Promise<void> {
-  if (!isSafeConceptFileId(id)) return;
+): Promise<string | undefined> {
+  if (!isSafeConceptFileId(id)) return "Invalid concept id.";
   const body = formatConceptTeaching(title, notes);
-  if (!body) return;
-  if (teachingFormatIssues(body).length) return;
+  if (!body) return "Nothing to save.";
+  const issues = teachingFormatIssues(body);
+  if (issues.length) return issues.join("; ");
   const path = conceptTeachingPath(id);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, clip(body), "utf8");
+  return undefined;
 }
 
 function conceptQuizPath(id: string): string {
@@ -1096,6 +1101,22 @@ export async function writeConceptQuiz(
   const path = conceptQuizPath(id);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(items, null, 2), "utf8");
+}
+
+export async function listConceptTeachingIds(): Promise<string[]> {
+  let names: string[] = [];
+  try {
+    names = await readdir(conceptsDir());
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return [];
+    throw err;
+  }
+  return names.flatMap((name) => {
+    if (!name.endsWith(".md")) return [];
+    const id = name.slice(0, -3);
+    return isSafeConceptFileId(id) ? [id] : [];
+  });
 }
 
 export async function readConceptTeachings(): Promise<Record<string, string>> {
@@ -1265,7 +1286,14 @@ export function clip(text: string, max = MAX_FILE_CHARS): string {
   // Stray ESC/C0 before TeX (e.g. `\x1b\phi`) makes KaTeX paint red errors.
   const t = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").trim();
   if (t.length <= max) return `${t}\n`;
-  return `${t.slice(0, max)}\n\n…[truncated]\n`;
+  // Prefer a line break, then walk back until `$` / `$$` are balanced.
+  let end = t.lastIndexOf("\n", max);
+  if (end < max * 0.5) end = max;
+  while (end > 0 && teachingFormatIssues(t.slice(0, end)).length) {
+    const prev = t.lastIndexOf("\n", end - 1);
+    end = prev > 0 ? prev : end - 1;
+  }
+  return `${t.slice(0, Math.max(0, end)).trimEnd()}\n\n…[truncated]\n`;
 }
 
 async function readOptional(path: string): Promise<string> {
