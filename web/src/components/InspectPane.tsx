@@ -366,6 +366,7 @@ export function CourseNav({
                       .filter(Boolean)
                       .join(" ")
                   }
+                  disabled={Boolean(initBusy)}
                   onClick={() => onQuest?.(q.id)}
                 >
                   {q.title}
@@ -514,14 +515,22 @@ export function CourseMap({
           ) : null}
           {course && nextN != null ? (
             <div className="head-actions" role="group" aria-label="Course actions">
-              <button type="button" onClick={() => onStart("debrief")}>
+              <button
+                type="button"
+                disabled={Boolean(initBusy)}
+                onClick={() => onStart("debrief")}
+              >
                 Debrief
               </button>
             </div>
           ) : null}
           {course && nextN == null && course.lectures.length > 0 ? (
             <div className="head-actions" role="group" aria-label="Course actions">
-              <button type="button" onClick={() => onStart("quiz")}>
+              <button
+                type="button"
+                disabled={Boolean(initBusy)}
+                onClick={() => onStart("quiz")}
+              >
                 Review
               </button>
             </div>

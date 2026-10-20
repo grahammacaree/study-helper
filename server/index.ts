@@ -103,7 +103,7 @@ app.post("/api/sessions", async (req, res) => {
 
 app.get("/api/sessions/:id", (req, res) => {
   try {
-    res.json(getSession(sessionId(req), req.query.lite === "1"));
+    res.json(getSession(sessionId(req)));
   } catch (err) {
     res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
   }

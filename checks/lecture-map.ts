@@ -1,5 +1,6 @@
 import { keepUnlockedConceptLinks } from "../server/catalog.js";
 import {
+  canonicalConceptId,
   mergeLectureConceptIds,
   suggestedConceptIds,
 } from "../server/lectureMap.js";
@@ -177,6 +178,52 @@ if (
   ).includes("concept:first-order-ode")
 ) {
   fail("unlocked catalog links should stay");
+}
+
+const shared: Record<string, ConceptDef> = {
+  "linear-algebra": { name: "Linear algebra" },
+  eigen: {
+    name: "Eigenvalues and diagonalization",
+    parentId: "linear-algebra",
+  },
+  "matrix-exponential": {
+    name: "Differential equations and exp(At)",
+    parentId: "eigen",
+  },
+  "differential-equations": { name: "Differential equations" },
+  "linear-systems": {
+    name: "First-order linear systems",
+    parentId: "differential-equations",
+    seeAlso: ["eigen"],
+  },
+  "ode-eigen": { name: "Eigenvalues", parentId: "differential-equations" },
+};
+if (canonicalConceptId("ode-eigen", shared) !== "eigen") {
+  fail("a later Eigenvalues node should be the linear-algebra one");
+}
+if (canonicalConceptId("linear-systems", shared) !== "linear-systems") {
+  fail("linear systems should stay a neighbor of eigenvalues, not a copy");
+}
+if (canonicalConceptId("eigen", shared) !== "eigen") {
+  fail("the existing eigenvalues node should stay itself");
+}
+if (
+  suggestedConceptIds("Continuation: Repeated Real Eigenvalues", shared).join() !==
+  "eigen"
+) {
+  fail("an eigenvalues lecture should tag eigen, not a course-local copy");
+}
+if (suggestedConceptIds("Matrix Exponentials", shared).join() !== "matrix-exponential") {
+  fail("Matrix Exponentials should hit the existing exp(At) node");
+}
+const eigenMerge = mergeLectureConceptIds(
+  ["ode-eigen", "linear-systems"],
+  ["ode-eigen"],
+  shared,
+  "Repeated Real Eigenvalues",
+);
+if (eigenMerge.join() !== "eigen,linear-systems") {
+  fail(`eigenvalues lecture should keep systems and drop the copy, got ${eigenMerge}`);
 }
 
 if (failures) throw new Error(`${failures} lecture-map check(s) failed`);

@@ -14,6 +14,7 @@
     "check:map": "tsx checks/lecture-map.ts",
     "check:decay": "tsx checks/decay.ts",
     "check:progress": "tsx checks/lecture-progress.ts",
+    "check:work-fence": "tsx checks/work-fence.ts",
     "check:quests": "tsx checks/quests.ts",
     "check:knowledge": "tsx checks/knowledge.ts",
     "check:typesafe": "tsx checks/typeSafe.ts",
@@ -22,7 +23,7 @@
     "check:prompt-budget": "tsx checks/prompt-budget.ts",
     "check:library-search": "tsx checks/library-search.ts",
     "check:teaching-format": "tsx checks/teaching-format.ts",
-    "check": "npm run check:catalog && npm run check:map && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:quests && npm run check:knowledge && npm run check:typesafe && npm run check:init && npm run check:prompt-budget && npm run check:library-search && npm run check:teaching-format && npm run check:measure && npm run design:check && npm run typecheck",
+    "check": "npm run check:catalog && npm run check:map && npm run check:quiz && npm run check:decay && npm run check:progress && npm run check:work-fence && npm run check:quests && npm run check:knowledge && npm run check:typesafe && npm run check:init && npm run check:prompt-budget && npm run check:library-search && npm run check:teaching-format && npm run check:measure && npm run design:check && npm run typecheck",
     "build": "tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },

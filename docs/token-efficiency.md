@@ -26,6 +26,7 @@ Measured with the committed empty profile, the 6.006 course blurb, lecture 4 tag
 ## What we do not send
 
 - Prior session transcripts (`data/sessions/` is UI resume only)
+- A second session shape for the busy poll. While a job is running the UI refetches that same snapshot, one GET at a time. The poll is not a model turn
 - Other courses’ lecture lists
 - Concept ids outside this lecture plus quiz-queue ids and one hop of `seeAlso`
 - Full `knowledge.md` when a slice will do

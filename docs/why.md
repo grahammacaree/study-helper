@@ -44,7 +44,7 @@ You earned the *node* by debriefing or finishing a quest. The teaching page is a
 
 ### How a concept grows
 
-One concept id is one node, even when several courses tag it. `markov-chains` from Stat 110 and from another series is the same library page, not a child per lecture.
+One concept id is one node, even when several courses tag it. `markov-chains` from Stat 110 and from another series is the same library page, not a child per lecture. A later course does not grow a second node when a lecture title is an idea that already lives under another field — including a plural of that name. A neighbor (linear systems pointing at eigenvalues) stays its own node.
 
 **Grain.** Same lecture is not the same node. Split independently citable named results (LLN vs CLT, Markov vs Chebyshev, BFS vs DFS) even when the calendar pairs them — each can carry its own theorem pass, and swapping them is the mix-up. Combine faces of one object (PMF and CDF), duals of one operator (Adam’s law and Eve’s law), or a family bucket whose children are the named members (`limit-theorems` → `lln`, `clt`; `inequalities` → Markov, Chebyshev). Field categories (`Cryptography`, `Graph theory`, `Probability`) are valid library nodes and lecture tags — not too broad to keep. Never name a leaf after a lecture title that is a comma-list of famous results. Host check: `fusedCitableResults` in `server/conceptShape.ts`.
 
@@ -90,4 +90,4 @@ The point of the conversation is **fit**, not completeness of the internet. Dept
 
 ## Files, not chats
 
-Long-term memory is `data/learner/` and `courses/`. A new Cursor agent reads those. Session JSON is only so the UI can resume. Token discipline ([token-efficiency.md](token-efficiency.md)) is how this stays cheap enough to run **every lecture** instead of becoming a weekend chatbot. Closing a course is host work: `index.json` moves to `previously`, and an optional `local/personal-site.ts` hook can flip the matching row on your site — title, href, and status only. A proved claim may be POSTed (claim only) to LeanSearch; the lecture summary stays on this computer.
+Long-term memory is `data/learner/` and `courses/`. A new Cursor agent reads those. Session JSON is only so the UI can resume. Interrupt keeps that job busy until it stops, and a lecture or library write that has not started is dropped. Adding a course clears a session only when that same session is still the open one. Token discipline ([token-efficiency.md](token-efficiency.md)) is how this stays cheap enough to run **every lecture** instead of becoming a weekend chatbot. Closing a course is host work: `index.json` moves to `previously`, and an optional `local/personal-site.ts` hook can flip the matching row on your site — title, href, and status only. A proved claim may be POSTed (claim only) to LeanSearch; the lecture summary stays on this computer.

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import {
   type AgentPriming,
@@ -56,7 +57,7 @@ import {
   readLectureSummary,
   recordQuiz,
   removeQuest,
-  saveLearner,
+  saveLearner as writeLearnerState,
   setLectureStatus,
   teachingSlice,
   teachingsForIds,
@@ -142,6 +143,43 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
+
+/** Epoch captured when a withBusy job starts. Cancel bumps Session.workEpoch. */
+const busyJob = new AsyncLocalStorage<{ s: Session; epoch: number }>();
+
+function jobDropped(s?: Session): boolean {
+  const job = busyJob.getStore();
+  if (!job) return false;
+  if (s && job.s !== s) return false;
+  return job.s.workEpoch !== job.epoch;
+}
+
+async function saveLearner(state: LearnerState): Promise<void> {
+  if (jobDropped()) return;
+  await writeLearnerState(state);
+}
+
+/**
+ * What an in-flight withBusy job should do when it finishes.
+ * commit: this job still owns the session.
+ * release: interrupt bumped the epoch and no newer job took the controller.
+ * leave: a newer job owns the session (concept switch).
+ */
+export function settleBusyJob(opts: {
+  epoch: number;
+  jobEpoch: number;
+  cancel: object | undefined;
+  jobCancel: object;
+  busy: boolean;
+}): "commit" | "release" | "leave" {
+  if (opts.epoch === opts.jobEpoch && opts.cancel === opts.jobCancel) return "commit";
+  const ownsFlag =
+    opts.epoch !== opts.jobEpoch &&
+    opts.busy &&
+    (opts.cancel == null || opts.cancel === opts.jobCancel);
+  if (ownsFlag) return "release";
+  return "leave";
+}
 
 /** Course map + library chrome. Teachings load separately — ~80 notes is ~300KB. */
 export async function catalogPayload(): Promise<CatalogPayload> {
@@ -306,7 +344,7 @@ export async function restoreSessions(): Promise<void> {
   }
 }
 
-export function getSession(id: string, _lite?: boolean): SessionSnapshot {
+export function getSession(id: string): SessionSnapshot {
   return snapshot(get(id));
 }
 
@@ -930,10 +968,13 @@ export async function quitSession(id: string): Promise<SessionSnapshot> {
 
 export async function cancelWork(id: string): Promise<SessionSnapshot> {
   const s = get(id);
+  if (!s.busy && !s.cancel) return snapshot(s);
+  s.workEpoch += 1;
   s.cancel?.abort();
-  s.busy = false;
+  s.cancel = undefined;
   s.workingOn = undefined;
   s.generatingOutline = undefined;
+  await closeAgent(s);
   return snapshot(s);
 }
 
@@ -1349,7 +1390,10 @@ async function startStoredConceptQuiz(s: Session): Promise<void> {
   const stored = s.quizBank.length ? s.quizBank : disk;
   if (stored.length) {
     s.quizBank = freshConceptQuizBank(stored);
-    if (!disk.length) await writeConceptQuiz(s.conceptId, s.quizBank);
+    if (!disk.length) {
+      if (jobDropped(s)) return;
+      await writeConceptQuiz(s.conceptId, s.quizBank);
+    }
     const catalog = await loadCatalog();
     const learner = await loadLearner();
     const quested = conceptsFromDoneQuests(catalog, learner.sideQuests);
@@ -1359,7 +1403,9 @@ async function startStoredConceptQuiz(s: Session): Promise<void> {
       [s.conceptId],
       { courseId: s.courseId, lectureN: s.lectureN },
     );
+    if (jobDropped(s)) return;
     await saveLearner(learner);
+    if (jobDropped(s)) return;
     await emitQuizItem(s);
     return;
   }
@@ -1370,12 +1416,15 @@ async function startStoredConceptQuiz(s: Session): Promise<void> {
   s.quizBank = freshConceptQuizBank(
     await writeFilteredQuiz(s, [{ id: s.conceptId as string, name }]),
   );
+  if (jobDropped(s)) return;
   await writeConceptQuiz(s.conceptId, s.quizBank);
   rememberTouch(learner, { ...catalog, concepts: quested.concepts }, [s.conceptId], {
     courseId: s.courseId,
     lectureN: s.lectureN,
   });
+  if (jobDropped(s)) return;
   await saveLearner(learner);
+  if (jobDropped(s)) return;
   await emitQuizItem(s);
 }
 
@@ -1409,6 +1458,7 @@ async function openQuest(s: Session): Promise<void> {
     }),
   );
   advancePriming(s.primed);
+  if (jobDropped(s)) return;
   const links = plan.links
     .map((l) => `- [${l.label}](${l.url})`)
     .join("\n");
@@ -1416,9 +1466,11 @@ async function openQuest(s: Session): Promise<void> {
     ? `${plan.explanation.trim()}\n\n${links}`
     : plan.explanation.trim();
   if (quest) {
+    if (jobDropped(s)) return;
     quest.notes = body;
     await saveLearner(learner);
   }
+  if (jobDropped(s)) return;
   push(s, { role: "assistant", kind: "text", text: body });
   s.wantQuestQuiz = true;
   s.pendingCorrection = plan.teachbackPrompt || QUEST_TEACHBACK;
@@ -1621,6 +1673,7 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
     lectureTitle: ctx.lectureTitle ?? "",
     conceptNames,
   });
+  if (jobDropped(s)) return;
   if (topicCheck === "mismatch") {
     const labeled = ctx.lectureTitle?.trim() || "this lecture";
     push(s, {
@@ -1635,7 +1688,9 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
   const { card, updates: rawUpdates } = await withAgent(s, (agent) =>
     runDebrief({ agent, primed: s.primed, ctx, summary }),
   );
+  if (jobDropped(s)) return;
   const slips = await screenDebriefSlips(card.corrections);
+  if (jobDropped(s)) return;
   card.corrections = [...slips.conceptual, ...slips.slips];
   const learner = await loadLearner();
   const aligned = await alignKnowledgeTheorems(learner.knowledge, rawUpdates);
@@ -1646,20 +1701,25 @@ async function debriefSummary(s: Session, summary: string): Promise<void> {
     }),
     slips,
   );
+  if (jobDropped(s)) return;
   advancePriming(s.primed);
   s.debrief = card;
   s.offeredQuests = card.offeredQuests;
   learner.knowledge = upsertKnowledge(learner.knowledge, updates);
   const spread = spreadTheoremProofs(learner.knowledge, updates);
   learner.knowledge = spread.list;
+  if (jobDropped(s)) return;
   await foldTeachingPasses(learner, updates, spread.changedIds);
+  if (jobDropped(s)) return;
   await writeLectureSummary({
     courseId: s.courseId,
     n: s.lectureN as number,
     summary,
     corrections: card.corrections,
   });
+  if (jobDropped(s)) return;
   await saveLearner(learner);
+  if (jobDropped(s)) return;
   s.inspect = await refreshInspect(s);
   push(s, {
     role: "assistant",
@@ -1805,7 +1865,9 @@ async function finishDebrief(
     courseId: s.courseId,
     lectureN: s.lectureN,
   });
+  if (jobDropped(s)) return;
   await saveLearner(learner);
+  if (jobDropped(s)) return;
   s.teachback = undefined;
   const stored =
     status === "shaky"
@@ -1875,6 +1937,7 @@ async function foldTeachingPasses(
   const teachings = await teachingsForIds(ids);
   const byId = new Map(learner.knowledge.map((row) => [row.id, row]));
   for (const id of ids) {
+    if (jobDropped()) return;
     const stored = teachings[id]?.trim();
     if (!stored) continue;
     const next = applyKnowledgePasses(stored, byId.get(id));
@@ -1901,8 +1964,10 @@ async function queueRewrite(s: Session, evidence: string): Promise<void> {
         // Reload before write: Finish may have marked progress complete while
         // the profile rewrite was in flight. saveLearner dumps the whole tree.
         const learner = await loadLearner();
+        if (jobDropped(s)) return;
         learner.profile = next.profile;
         await saveLearner(learner);
+        if (jobDropped(s)) return;
         s.inspect = await refreshInspect(s);
         await persist(s);
       }),
@@ -2088,7 +2153,7 @@ async function withBusy(
   s.workingOn = label;
   s.cancel = cancel;
   try {
-    await fn();
+    await busyJob.run({ s, epoch }, fn);
   } catch (err) {
     if (s.workEpoch !== epoch) return snapshot(s);
     const aborted = cancel.signal.aborted;
@@ -2102,13 +2167,20 @@ async function withBusy(
       push(s, { role: "assistant", kind: "status", text: message });
     }
   } finally {
-    if (s.workEpoch === epoch && s.cancel === cancel) {
+    const action = settleBusyJob({
+      epoch: s.workEpoch,
+      jobEpoch: epoch,
+      cancel: s.cancel,
+      jobCancel: cancel,
+      busy: s.busy,
+    });
+    if (action === "commit" || action === "release") {
       s.busy = false;
       s.workingOn = undefined;
       s.generatingOutline = undefined;
-      s.cancel = undefined;
-      await persist(s);
+      if (s.cancel === cancel) s.cancel = undefined;
     }
+    if (action === "commit") await persist(s);
   }
   return snapshot(s);
 }
@@ -2152,7 +2224,9 @@ async function sendOnAgent<T>(
     s.primed = newPriming();
   }
   try {
-    return await fn(s.agent);
+    const result = await fn(s.agent);
+    if (s.workEpoch !== epoch) throw new Error("Interrupted.");
+    return result;
   } catch (err) {
     if (s.workEpoch !== epoch) throw err;
     const msg = err instanceof Error ? err.message : String(err);
@@ -2223,6 +2297,7 @@ function persistable(s: Session): unknown {
 }
 
 async function persist(s: Session): Promise<void> {
+  if (jobDropped(s)) return;
   await writeSession(s.id, persistable(s));
 }
 

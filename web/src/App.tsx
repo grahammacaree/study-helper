@@ -119,10 +119,19 @@ export function App() {
     if (!busy && !session.busy) return;
     const id = session.id;
     const conceptId = session.conceptId;
+    let generation = 0;
+    let inFlight = false;
+    let pollAc: AbortController | null = null;
     const timer = window.setInterval(() => {
+      if (inFlight) return;
+      const ac = new AbortController();
+      pollAc = ac;
+      const mine = ++generation;
+      inFlight = true;
       void api
-        .get(id, { lite: true })
+        .get(id, { signal: ac.signal })
         .then((snap) => {
+          if (ac.signal.aborted || mine !== generation) return;
           setSession((cur) => {
             if (!cur || cur.id !== id) return cur;
             if (
@@ -136,9 +145,16 @@ export function App() {
             return snap;
           });
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (mine === generation) inFlight = false;
+        });
     }, 500);
-    return () => window.clearInterval(timer);
+    return () => {
+      generation += 1;
+      pollAc?.abort();
+      window.clearInterval(timer);
+    };
   }, [busy, session?.id, session?.busy, session?.conceptId]);
 
   useEffect(() => {
@@ -159,6 +175,7 @@ export function App() {
     setError(null);
     try {
       const snap = await fn(ac.signal);
+      if (ac.signal.aborted || abortRef.current !== ac) return undefined;
       rememberSession(snap.id);
       setSession(snap);
       if (snap.courseId) {
@@ -281,6 +298,7 @@ export function App() {
         },
         onLecture: (n) => setLectureN(n),
         onStart: (kind) => {
+          if (initBusy) return;
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid) return;
           if (kind === "quiz") {
@@ -298,6 +316,7 @@ export function App() {
           );
         },
         onQuest: (questId) => {
+          if (initBusy) return;
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid) return;
           void run((signal) =>
@@ -305,6 +324,7 @@ export function App() {
           );
         },
         onNewQuest: (title) => {
+          if (initBusy) return;
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid) return;
           const want = foldQuestTitle(title);
@@ -366,15 +386,17 @@ export function App() {
           if (hit?.track === "later" || looksLikeCourseUrl(listing)) {
             setInitBusy(true);
             setError(null);
+            const ownedSessionId = session?.id;
             void initCourse(listing)
               .then((result) => {
                 setCatalog(result.catalog);
                 setCourseId(result.course.id);
                 rememberCourse(result.course.id);
-                if (session) {
-                  forgetSession();
-                  setSession(null);
-                }
+                if (!ownedSessionId) return;
+                if (loadSessionId() === ownedSessionId) forgetSession();
+                setSession((cur) =>
+                  cur?.id === ownedSessionId ? null : cur,
+                );
               })
               .catch((err: unknown) =>
                 setError(err instanceof Error ? err.message : String(err)),
@@ -407,6 +429,7 @@ export function App() {
           void run((signal) => api.pickCourse(session.id, url, signal));
         },
         onConcept: (conceptId) => {
+          if (initBusy) return;
           const cid = courseId ?? catalog?.courses[0]?.id;
           if (!cid || !catalog?.concepts[conceptId]) return;
           const unlocked = unlockedConceptIds(

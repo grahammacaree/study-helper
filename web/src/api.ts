@@ -84,10 +84,9 @@ export function createSession(
 
 export function getSession(
   id: string,
-  opts?: { lite?: boolean; signal?: AbortSignal },
+  opts?: { signal?: AbortSignal },
 ): Promise<SessionSnapshot> {
-  const q = opts?.lite ? "?lite=1" : "";
-  return call<SessionSnapshot>(`/api/sessions/${id}${q}`, {
+  return call<SessionSnapshot>(`/api/sessions/${id}`, {
     signal: opts?.signal,
   });
 }

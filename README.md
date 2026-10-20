@@ -82,7 +82,7 @@ Start one from the nav tabs or from a debrief. Its own chat: an explanation (a c
 
 ## What it remembers
 
-Long-term memory is files, not chat history. A new session starts a **new** Cursor agent and reads disk. Session JSON is only so the UI can resume; the next agent run does not send that transcript.
+Long-term memory is files, not chat history. A new session starts a **new** Cursor agent and reads disk. Session JSON is only so the UI can resume; the next agent run does not send that transcript. Interrupt keeps the job busy until it stops, and a lecture or library write that has not started is dropped. Adding a course clears a session only when that same session is still the open one.
 
 **Gitignored** — local only, not the public tree:
 

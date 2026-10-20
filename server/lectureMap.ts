@@ -48,9 +48,23 @@ function distinctiveKeys(id: string, name: string): string[] {
   return [...new Set(keys)];
 }
 
+function sameToken(a: string, b: string): boolean {
+  return a === b || a === `${b}s` || b === `${a}s`;
+}
+
 function foldedHas(haystack: string, needle: string): boolean {
   if (!needle) return false;
-  return ` ${haystack} `.includes(` ${needle} `);
+  if (` ${haystack} `.includes(` ${needle} `)) return true;
+  // "matrix exponentials" is the idea "matrix exponential". A one-word
+  // plural stays distinct so "exponentials" does not become the memoryless exponential.
+  if (!needle.includes(" ")) return false;
+  const hay = haystack.split(" ").filter(Boolean);
+  const need = needle.split(" ").filter(Boolean);
+  if (hay.length < need.length) return false;
+  for (let i = 0; i <= hay.length - need.length; i += 1) {
+    if (need.every((tok, k) => sameToken(hay[i + k], tok))) return true;
+  }
+  return false;
 }
 
 function scoreTitle(title: string, id: string, name: string): number {
@@ -85,6 +99,64 @@ function isEmbeddedName(title: string, id: string, name: string): boolean {
   return needles.some((n) => t.includes(n) && !foldedHas(t, n));
 }
 
+function fieldRoot(id: string, concepts: Record<string, ConceptDef>): string {
+  const seen = new Set<string>();
+  let cur = id;
+  while (concepts[cur]?.parentId && !seen.has(cur)) {
+    seen.add(cur);
+    cur = concepts[cur].parentId as string;
+  }
+  return cur;
+}
+
+function childCount(id: string, concepts: Record<string, ConceptDef>): number {
+  let n = 0;
+  for (const def of Object.values(concepts)) {
+    if (def.parentId === id) n += 1;
+  }
+  return n;
+}
+
+/**
+ * A later course sometimes grows a second node whose name *is* an idea that
+ * already lives under another field ("Eigenvalues" beside "Eigenvalues and
+ * diagonalization"). That copy is the same node. Neighbors (linear systems
+ * pointing at eigenvalues, graph theory pointing at BFS) do not match this
+ * way and stay put.
+ */
+export function canonicalConceptId(
+  id: string,
+  concepts: Record<string, ConceptDef>,
+  seen: Set<string> = new Set(),
+): string {
+  const def = concepts[id];
+  if (!def || seen.has(id) || !isStudyConcept(def.name, id)) return id;
+  seen.add(id);
+  const self = scoreTitle(def.name, id, def.name);
+  const mine = fieldRoot(id, concepts);
+  const kids = childCount(id, concepts);
+  let bestId = id;
+  let bestScore = self;
+  let bestKids = kids;
+  for (const [otherId, other] of Object.entries(concepts)) {
+    if (otherId === id || seen.has(otherId)) continue;
+    if (!isStudyConcept(other.name, otherId)) continue;
+    if (fieldRoot(otherId, concepts) === mine) continue;
+    const score = scoreTitle(def.name, otherId, other.name);
+    if (score < 14 || score < self) continue;
+    const kidsOther = childCount(otherId, concepts);
+    const fuller = other.name.length > concepts[bestId].name.length;
+    const better =
+      score > bestScore ||
+      (score === bestScore && (kidsOther > bestKids || (kidsOther === bestKids && fuller)));
+    if (!better) continue;
+    bestId = otherId;
+    bestScore = score;
+    bestKids = kidsOther;
+  }
+  return bestId === id ? id : canonicalConceptId(bestId, concepts, seen);
+}
+
 /** Leaf or category tags a lecture title clearly names. Continuation inherits `prior`. */
 export function suggestedConceptIds(
   title: string,
@@ -111,7 +183,12 @@ export function suggestedConceptIds(
       );
     })
     .slice(0, 3)
-    .map((row) => row.id);
+    .map((row) => canonicalConceptId(row.id, concepts));
+  const deduped: string[] = [];
+  for (const id of ids) {
+    if (!deduped.includes(id)) deduped.push(id);
+  }
+  ids.splice(0, ids.length, ...deduped);
   if (/^\s*continuation\b/i.test(title.trim()) && prior?.length) {
     const seen = new Set(ids);
     for (const id of prior) {
@@ -133,8 +210,9 @@ export function mergeLectureConceptIds(
 ): string[] {
   const out: string[] = [];
   const add = (id: string) => {
-    if (!id || !concepts[id] || out.includes(id)) return;
-    out.push(id);
+    const canon = canonicalConceptId(id, concepts);
+    if (!canon || !concepts[canon] || out.includes(canon)) return;
+    out.push(canon);
   };
   for (const id of suggested) add(id);
   // Keep curated tags the title does not name (e.g. Cryptography on
